@@ -1,0 +1,93 @@
+\chapter{Utilising runtime information}
+\label{ch:methodology}
+
+\section{Data collection}
+
+For the purposes of our research, we chose a set of 10 Python repositories which utilize Python dynamic typing heavily. Important feature for us was a lack of type annotations in the project, as this would increase the benefit of having runtime traces as an additional context. 
+
+We also use BugsInPy dataset [TODO reference] which already contains the format we need - commit of with broken test, commit with fixed code, code diff.
+
+PLAN TODO:
+- SWE Bench as a training material. many samples.
+- BugsInPy as eval. hand-picked, real-life
+
+\section{Injecting runtime information into prompts}
+
+To collect runtime information we utilize the \texttt{pytest} library and run tests with an injected custom hook. pytest already maintains a list of frames during test execution, and our task is to collect only the relevant information and filter the frames appropriately.
+
+\subsection{pytest hook mechanism}
+
+We implemented two approaches for collecting runtime information, each using different pytest hooks. The first approach uses the \texttt{pytest\_runtest\_makereport} hook, which pytest calls after each test phase (setup, call, teardown) to create test reports. By implementing this hook with the \texttt{tryfirst=True} parameter and using a \texttt{hookwrapper}, we intercept the report creation before pytest processes the exception information. This allows us to access the live traceback through \texttt{call.excinfo}, which contains the exception type, message, and most importantly, the chain of frames leading to the failure.
+
+The second approach uses the \texttt{pytest\_runtest\_call} hook combined with Python's \texttt{sys.settrace} mechanism. This method installs a trace function that gets called for every function call, return, and exception event during test execution. While more comprehensive, this approach generates significantly more data, capturing the entire execution flow rather than just the failure path. For each traced event, we record the file, line number, function name, and local variables at that point in execution.
+
+\subsection{Frame filtering strategy}
+
+Since raw execution traces contain hundreds or thousands of frames, we need to filter aggressively to keep the context manageable. We don't care about frames from non-application code like Python's standard library. Because there are also too many frames even in application code, and we can't inflate the context window excessively, we filter even the application code carefully.
+
+The filtering logic examines each frame's filename and skips frames from several categories: special Python files (indicated by angle brackets in the filename, like \texttt{<frozen importlib>}), the standard library (by checking against \texttt{sysconfig.get\_path("stdlib")}), and third-party packages in \texttt{site-packages}. For the call-tracing approach, we also exclude pytest's own internals and the tracing infrastructure itself to prevent circular tracing. This filtering happens in the \texttt{do\_append\_frame} and \texttt{should\_trace\_file} functions, which return \texttt{True} only for application code that's directly relevant to debugging the failure.
+
+\subsection{Data format and structure}
+
+The collected information is saved in a JSON file, typically named \texttt{auto\_debug.json}. The file contains an array of test results, where each entry represents one test execution. For failed tests, each entry includes four key fields: \texttt{nodeid} (the fully-qualified test identifier like \texttt{module::TestClass::test\_method}), \texttt{exc\_type} (the exception class name such as \texttt{AssertionError}), \texttt{message} (the exception message), and \texttt{frames} (an array of stack frame objects).
+
+Each frame object in turn contains four fields: \texttt{file} (the absolute path to the source file), \texttt{line} (the line number where execution was), \texttt{func} (the function or method name), and \texttt{locals} (a dictionary of local variable names mapped to their serialized values). For the call-tracing variant, the structure is similar but uses \texttt{call\_trace} instead of \texttt{frames}, and includes an \texttt{event} field indicating whether this was a function call, return, or exception.
+
+As a concrete example, here is a simplified test failure entry from our data:
+
+\begin{verbatim}
+{
+  "nodeid": "jsonschema/tests/test_cli.py::TestCLI::test_license",
+  "exc_type": "AssertionError",
+  "message": "None != 'MIT'",
+  "frames": [
+    {
+      "file": "/path/to/test_cli.py",
+      "line": 885,
+      "func": "test_license",
+      "locals": {
+        "self": "<TestCLI object>",
+        "our_metadata": "<Message object>"
+      }
+    },
+    {
+      "file": "/usr/lib/python3.13/unittest/case.py",
+      "line": 907,
+      "func": "assertEqual",
+      "locals": {
+        "self": "<TestCLI object>",
+        "first": "None",
+        "second": "'MIT'"
+      }
+    }
+  ]
+}
+\end{verbatim}
+
+\subsection{Variable capture and serialization}
+
+Local variables are extracted from each frame using Python's \texttt{frame.f\_locals} dictionary, which provides access to all local variables in that frame's scope. However, directly serializing arbitrary Python objects presents challenges - some objects are recursive, some are extremely large, and some cannot be serialized to JSON.
+
+We handle this using two serialization strategies. The simpler approach uses Python's \texttt{repr()} function, which produces a string representation of any object. The more sophisticated approach uses the \texttt{jsonpickle} library with the \texttt{unpicklable=False} parameter, which attempts to create JSON-compatible representations while avoiding circular references. Regardless of the method, we apply a size limit called \texttt{CUTOFF\_OFFSET} (set to 1000 characters) to prevent any single variable from bloating the output. If a serialized value exceeds this limit, it's truncated. This pragmatic approach balances completeness with manageability - we capture enough information to understand variable states without generating multi-megabyte trace files for complex objects.
+
+\subsection{Prompt generation from traces}
+
+The JSON trace data serves as input to our prompt generation system. We extract the first failed test from the JSON file, as this provides the most immediate debugging context. The prompt template follows a structured format that guides the language model through the debugging task.
+
+Each prompt consists of several sections: the exception type and message at the top, followed by a series of frame blocks showing the execution path leading to the failure. For each frame, we include not just the metadata (file, line, function), but also surrounding source code context. The \texttt{get\_ctx\_around\_line} function reads the source file and extracts lines around the failure point - by default, 10 lines before and after, though this \texttt{context\_size} parameter is configurable. This gives the model actual code to reason about, not just variable values.
+
+The frame information is formatted into readable blocks that include the filename, function name, line number, source code context with the failure line highlighted, and the local variables at that point. This transformation from raw JSON to natural language description makes the trace data digestible for the language model while preserving all essential debugging information.
+
+\subsection{Structured output and patch generation}
+
+The prompt explicitly instructs the language model to produce output in unified diff format, the standard format used by tools like \texttt{git diff} and \texttt{patch}. Each diff block begins with \texttt{---} and \texttt{+++} headers specifying the file path, followed by hunks starting with \texttt{@@} markers indicating line ranges. Lines to remove are prefixed with \texttt{-}, lines to add with \texttt{+}, and unchanged context lines have no prefix.
+
+By constraining the output format through detailed prompt instructions, we make the model's response programmatically parsable. The prompt includes examples of correct diff formatting and explicitly warns against common mistakes like incorrect line numbers or misaligned context. This structured output approach allows us to automatically extract the proposed changes and apply them to the codebase using standard patching tools.
+
+We support both one-shot and iterative bug fixing workflows. In the one-shot approach, we generate the prompt once, receive a patch, apply it, and re-run tests to verify the fix. In the iterative approach, if the initial patch doesn't resolve the issue or introduces new failures, we can feed the updated test results back into the system, generating a refined prompt that includes information about what was already attempted. This allows the model to learn from failed attempts and adjust its strategy.
+
+\section{Finetuning on runtime data}
+
+TODO Research
+- Take SWE bench and collect runtime from there.
+- Implement a solution for unittest framework

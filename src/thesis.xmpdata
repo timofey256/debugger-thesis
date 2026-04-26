@@ -1,0 +1,7 @@
+% Metadata to be stored in PDF, see documentation of the pdfx package for more details.
+
+\Author{Tymofii Shchetilin}
+\Title{Using runtime information to improve LLM code generation}
+\Keywords{keywords\sep more such\sep yet another}
+\Subject{Abstract of thesis}
+\Publisher{Charles University}

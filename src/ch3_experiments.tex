@@ -1,0 +1,197 @@
+\chapter{Experiments}
+\label{ch:evaluation}
+
+\section{Datasets and metrics}
+
+\subsection{Runtime information dataset}
+
+The core of our experimental setup relies on runtime information collected during test execution. This dataset captures the state of the program at the moment of test failure, providing the context needed for the language model to generate appropriate fixes.
+
+\subsubsection{Data format}
+
+Runtime information is stored in JSON format in a file named \texttt{auto\_debug.json}. Each entry in the dataset corresponds to a single failing test and contains the following fields:
+
+\begin{itemize}
+    \item \textbf{nodeid}: A fully qualified pytest test identifier in the format \texttt{module::TestClass::test\_method}, uniquely identifying the failing test.
+    \item \textbf{exc\_type}: The exception class name (e.g., \texttt{AssertionError}, \texttt{TypeError}, \texttt{ValueError}) that caused the test failure.
+    \item \textbf{message}: The exception message providing details about the failure.
+    \item \textbf{frames}: An array of stack frames representing the call chain leading to the exception. Only frames from application code are included, excluding standard library and third-party dependencies.
+\end{itemize}
+
+Each frame in the \texttt{frames} array contains:
+
+\begin{itemize}
+    \item \textbf{file}: Absolute path to the source file.
+    \item \textbf{line}: Line number where the exception occurred.
+    \item \textbf{func}: Function name.
+    \item \textbf{locals}: A dictionary of local variable names mapped to their serialized values at the point of execution.
+\end{itemize}
+
+An example entry from the runtime information dataset:
+
+\begin{verbatim}
+{
+  "nodeid": "tests/test_validator.py::TestValidator::test_type",
+  "exc_type": "AssertionError",
+  "message": "Expected type 'string', got 'integer'",
+  "frames": [
+    {
+      "file": "/path/to/validator.py",
+      "line": 42,
+      "func": "validate_type",
+      "locals": {
+        "expected": "\"string\"",
+        "actual": "\"integer\"",
+        "value": "123"
+      }
+    }
+  ]
+}
+\end{verbatim}
+
+\subsubsection{Data collection mechanism}
+
+Runtime information is collected through pytest hooks implemented in a \texttt{conftest.py} file. The implementation uses the \texttt{pytest\_runtest\_makereport} hook with \texttt{tryfirst=True} priority, which intercepts test reports after each test phase. When a test fails during the call phase, the hook accesses the live traceback through \texttt{call.excinfo}.
+
+The collection process applies filtering to focus on relevant frames. Frames are excluded if their filename contains angle brackets (indicating frozen modules), the substring "frozen", or "site-packages". This filtering ensures that only application code frames are captured, significantly reducing the volume of data while maintaining the information necessary for debugging.
+
+Variable serialization is performed using \texttt{jsonpickle.dumps()} with \texttt{unpicklable=False} to produce JSON-compatible representations. To prevent excessive data volume from large objects, each serialized variable value is truncated to 1000 characters. While this truncation may lose some details, it ensures that the dataset remains manageable while preserving the most relevant debugging information.
+
+The collected data is accumulated in memory during the test session and written to disk when the session finishes, using the \texttt{pytest\_sessionfinish} hook. This approach minimizes I/O overhead during test execution.
+
+\subsection{Runtime-information rich projects}
+
+We evaluate our system on open-source Python projects with comprehensive test suites. These projects serve as the primary evaluation datasets, providing real-world code and tests on which to measure the system's effectiveness.
+
+\subsubsection{Selection criteria}
+
+Projects are selected based on the following criteria:
+
+\begin{itemize}
+    \item \textbf{Open-source availability}: The project must be publicly available to ensure reproducibility.
+    \item \textbf{Comprehensive test coverage}: The project must have extensive test suites to provide sufficient failing tests for evaluation.
+    \item \textbf{Python implementation}: Projects must be written in Python to match the scope of our pytest-based data collection infrastructure.
+    \item \textbf{Active development}: Projects should be actively maintained, ensuring that bugs and test failures are representative of current development practices.
+\end{itemize}
+
+These criteria ensure that our evaluation reflects realistic scenarios where developers would use debugger-enhanced code completion.
+
+\subsubsection{Current evaluation dataset}
+
+The primary evaluation dataset is the JSONSchema library (\url{https://github.com/python-jsonschema/jsonschema}), a Python implementation of JSON Schema validation. This project contains hundreds of tests organized in a pytest-compatible structure. The test suite includes both unit tests for individual validation functions and extensive data-driven tests using JSON test files. The variety of test types and the complexity of validation logic make JSONSchema representative of real-world Python projects.
+
+\subsubsection{Planned evaluation datasets}
+
+We plan to expand the evaluation to include the following projects:
+
+\begin{itemize}
+    \item \textbf{pytest} (\url{https://github.com/pytest-dev/pytest}): A widely-used testing framework with a large test suite.
+    \item \textbf{Pandas} (\url{https://github.com/pandas-dev/pandas}): A data manipulation library with complex data structures and algorithms.
+    \item \textbf{Flask} (\url{https://github.com/pallets/flask}): A web framework with tests covering HTTP handling and request processing.
+    \item \textbf{Django} (\url{https://github.com/django/django}): A comprehensive web framework with extensive test coverage.
+    \item \textbf{Slipcover} (\url{https://github.com/plasma-umass/slipcover}): A coverage measurement tool.
+\end{itemize}
+
+The diversity of these projects addresses our research questions by providing varied code patterns and debugging scenarios. Projects like pytest and Flask involve I/O and external dependencies, testing the system's ability to handle side effects. Data-intensive projects like Pandas test the system on algorithmic code. This variety allows us to assess whether runtime information provides consistent benefits across different domains (RQ1) and to identify which trace information is most valuable in different contexts (RQ2).
+
+\subsection{BugsInPy dataset}
+
+BugsInPy is a benchmark dataset of real-world Python bugs from popular open-source projects. It serves as a validation dataset for evaluating our system's ability to fix authentic bugs encountered in production code.
+
+The dataset consists of hand-picked bug cases from Python projects. Each case in BugsInPy includes three components:
+
+\begin{itemize}
+    \item A commit with failing tests that expose the bug.
+    \item A commit with the fixed code that resolves the issue.
+    \item The code diff between the buggy and fixed versions.
+\end{itemize}
+
+We use BugsInPy to validate our debugger-enhanced code completion system against real-life bug scenarios. The availability of both failing tests and verified fixes allows us to measure whether the system can generate patches that match or approximate the actual developer fixes. This validation establishes external validity by demonstrating that the system performs on authentic bugs rather than only synthetic test cases.
+
+The use of BugsInPy complements our evaluation on runtime-information rich projects by providing a standardized benchmark that enables comparison with other bug repair approaches.
+
+\subsection{Experimental pipeline}
+
+The experimental evaluation follows a systematic pipeline that transforms failing tests into code fixes and measures their effectiveness. The pipeline consists of three main phases: data collection, prompt generation, and evaluation.
+
+\subsubsection{Data collection phase}
+
+The pipeline begins with test execution instrumented with the pytest hooks described previously. When tests are run with the custom \texttt{conftest.py} configuration, each failing test triggers the hook mechanism, which captures runtime information and stores it in \texttt{auto\_debug.json}. This phase is fully automated and requires no manual intervention beyond configuring the project to use the instrumented conftest file.
+
+\subsubsection{Prompt generation phase}
+
+The collected debug data is transformed into prompts for the language model. The prompt generation process, implemented in \texttt{generate\_prompt.py}, reads entries from \texttt{auto\_debug.json} and constructs a structured prompt containing:
+
+\begin{enumerate}
+    \item The exception type and message.
+    \item Runtime trace frames with source code context (10 lines before and after each frame location).
+    \item Local variable values at each frame.
+    \item Instructions specifying that the output should be a unified diff patch.
+    \item Examples of the correct diff format.
+\end{enumerate}
+
+This prompt provides the language model with both the error symptoms and the runtime state that led to the failure, enabling context-aware code generation.
+
+\subsubsection{Evaluation phase}
+
+The language model generates a unified diff patch in response to the prompt. The patch is parsed by \texttt{apply\_patch.py} and applied to the source files. Tests are then re-executed to determine whether the generated patch resolves the failure. The evaluation harness in \texttt{run\_automated\_testing.py} coordinates this process and collects metrics on test pass rates, edit distances, and execution time.
+
+This three-phase pipeline enables systematic evaluation across multiple projects and test cases. The automation of data collection and evaluation ensures reproducibility and allows for large-scale experiments across different model configurations and ablation conditions.
+
+\subsection{Metrics}
+
+We employ four metrics to evaluate the effectiveness of debugger-enhanced code completion. These metrics assess different aspects of the system's performance, from functional correctness to code similarity and efficiency.
+
+\subsubsection{Functional correctness}
+
+Functional correctness measures whether the generated code fix successfully resolves the test failure. This is the primary metric, as it directly assesses the system's ability to achieve its main objective: fixing bugs.
+
+The metric is calculated as the ratio of passed tests after applying the generated patch to the total number of tests:
+
+\[
+\text{Functional Correctness} = \frac{\text{passed\_tests\_after}}{\text{total\_tests}}
+\]
+
+This is a binary metric at the level of individual fixes. A generated patch either resolves the failing test or it does not. At the aggregate level, functional correctness represents the percentage of test failures that the system successfully fixes.
+
+\subsubsection{Edit distance}
+
+Edit distance quantifies the syntactic similarity between the original code and the generated fix. We use Levenshtein distance, which measures the minimum number of single-character edits (insertions, deletions, or substitutions) required to transform one string into another.
+
+For code generation, edit distance provides insight into how extensively the system modifies the code. Lower edit distances indicate that the fix is minimal and localized, while higher distances suggest more substantial changes.
+
+\subsubsection{Normalized edit distance}
+
+Normalized edit distance adjusts the raw edit distance by the length of the original code:
+
+\[
+\text{Normalized Edit Distance} = \frac{\text{edit\_distance}}{\text{original\_code\_length}}
+\]
+
+This normalization allows for fair comparison across functions of different sizes. A normalized distance of 0.1, for example, indicates that the changes represent approximately 10\% of the original code length.
+
+\subsubsection{Execution time}
+
+Execution time measures the time required to generate a valid code fix. This metric includes the time for prompt generation, language model inference, and patch application. It does not include the initial test execution time for data collection, as that is a one-time cost per project.
+
+Execution time is important for assessing the practical usability of the system. Shorter execution times enable faster iteration during development.
+
+\subsubsection{Metric selection rationale}
+
+These metrics were selected to address our research questions:
+
+\begin{itemize}
+    \item \textbf{RQ1} (Can execution traces improve bug repair?): Functional correctness directly measures the improvement in bug repair success rate when runtime information is provided.
+    \item \textbf{RQ2} (What trace information is needed?): Edit distance and normalized edit distance help identify whether certain trace information leads to more focused, minimal fixes.
+    \item \textbf{RQ3} (Fine-tuning vs. prompting?): All metrics apply when comparing different model configurations, allowing comprehensive comparison of approaches.
+\end{itemize}
+
+These metrics are standard in code generation and program repair research, enabling comparison with related work. Functional correctness aligns with pass@k metrics used in code generation benchmarks, while edit distance is commonly used to measure patch quality in automated program repair.
+
+\section{Baseline}
+
+\section{Injecting runtime information into prompts}
+
+\section{Finetuning on runtime data}
+
+\section{Ablation studies}
