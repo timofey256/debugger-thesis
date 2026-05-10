@@ -91,11 +91,28 @@ These three collections correspond directly to the three data structures describ
 
 At session end the tracer writes all collected data to a file named \texttt{auto\_debug.json}. This file is a JSON array where each element corresponds to one failing test. An element contains the test's node identifier, the exception type and message, and three runtime data structures.
 
-\textbf{exec\_path} is built from \texttt{call} events. Each record contains \texttt{file}, \texttt{func}, and \texttt{line} but no local variables. It represents the sequence of functions called during the test and gives the LLM a compact call trace without variable noise.
+We define two record types. A \emph{call record} captures a function entry event:
+\[
+  r^{\mathrm{call}} = (f,\; l,\; n)
+\]
+where $f$ is a file path, $l \in \mathbb{N}$ is a line number, and $n$ is a function name. A \emph{frame record} extends this with a locals snapshot:
+\[
+  r^{\mathrm{frame}} = (f,\; l,\; n,\; \rho)
+\]
+where $\rho : \mathcal{V} \rightharpoonup \Sigma^{*}$ is a partial map from variable names to their serialized string values. A \emph{trace record} for one failing test is the tuple:
+\[
+  T = (\mathit{id},\; \tau,\; m,\; E,\; F,\; S)
+\]
+where $\mathit{id}$ is the test node identifier, $\tau$ is the exception type, $m$ is the exception message, and $E$, $F$, $S$ are finite sequences:
+\[
+  E \in (r^{\mathrm{call}})^{*}, \qquad F \in (r^{\mathrm{frame}})^{*}, \qquad S \in (r^{\mathrm{frame}})^{*}
+\]
 
-\textbf{frames} is built from \texttt{return} events. Each record contains \texttt{file}, \texttt{func}, \texttt{line}, and \texttt{locals}. It captures the state of each function at the moment it returned, providing a view similar to a traceback enriched with variable snapshots.
+\textbf{exec\_path} ($E$) is built from \texttt{call} events and records only $(f, l, n)$ with no locals. It gives the LLM a compact call trace of the functions invoked during the test.
 
-\textbf{step\_frames} is built from \texttt{line} events. Each record contains \texttt{file}, \texttt{func}, \texttt{line}, and \texttt{locals}. It captures the local variable state at every source line executed during the test, in order.
+\textbf{frames} ($F$) is built from \texttt{return} events and records the full $(f, l, n, \rho)$ at each function return. It provides a traceback enriched with the variable state at the moment of return.
+
+\textbf{step\_frames} ($S$) is built from \texttt{line} events and records $(f, l, n, \rho)$ at every executed source line, in order. It exposes how local variables evolve across individual statements inside a function.
 
 Initially, we collected only entry and exit frames, believing that knowing which functions were called and what state they returned in would be sufficient to analyse runtime behaviour. This proved inadequate in practice. Empirically we observed that models given only entry and exit information struggled to localise bugs that corrupted state midway through a function, and logically this makes sense: entry frames carry no variables at all, and exit frames show only the final state at return. A bug that overwrites a variable partway through a loop or a conditional branch is invisible to both. To give the model a more granular view of what happened inside each function, we added line-level recording. With \texttt{step\_frames}, the LLM can request the execution history of a specific function and see how each local variable evolves statement by statement.
 
@@ -125,6 +142,27 @@ The top-level structure of a single entry in \texttt{auto\_debug.json} is shown 
 
 Raw traces contain frames from the Python standard library, third-party packages, pytest internals, and the tracing infrastructure itself. These frames carry no useful debugging signal and inflate the data. We apply three separate filtering pipelines, one per data structure, because the noise profile and volume differ across them. Each pipeline is a composition of custom heuristic filters that express domain knowledge about which frames are relevant for debugging application code.
 
+Formally, a \emph{filter} is a predicate $\varphi : R \to \{0, 1\}$ over records. A \emph{pipeline} $P = (\varphi_1, \dots, \varphi_k, N)$ maps an input sequence $\sigma$ to a filtered, capacity-capped subsequence:
+\[
+  P(\sigma) \;=\; \bigl[\, r \in \sigma \;\mid\; \forall i:\, \varphi_i(r) = 1 \,\bigr]_{0:N}
+\]
+where $[\cdot]_{0:N}$ denotes truncation to the first $N$ elements. We instantiate three pipelines differing in their filter sets and cap $N$, summarised in Table~\ref{tab:pipelines}.
+
+\begin{table}[ht]
+\centering
+\caption{Filtering pipelines applied per data structure.}
+\label{tab:pipelines}
+\begin{tabular}{@{}llr@{}}
+\toprule
+\textbf{Data structure} & \textbf{Filters} ($\varphi_1, \dots, \varphi_k$) & \textbf{Cap $N$} \\
+\midrule
+\texttt{frames}      & FrozenOrSynthetic, SitePackages, Stdlib, Conftest   & $\infty$ \\
+\texttt{exec\_path}  & TestbedOnly, Conftest, Dedup$(f, n)$, MaxEntries    & 500 \\
+\texttt{step\_frames}& TestbedOnly, Conftest, Dedup$(f, n, l)$, MaxEntries & 2000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Traceback frame pipeline}
 
 The pipeline for \texttt{frames} applies four filters in sequence. \texttt{FrozenOrSyntheticFrameFilter} drops frames whose file path contains \texttt{<} or the substring \texttt{frozen}; these correspond to frozen importlib modules that have no real source. \texttt{SitePackagesFrameFilter} drops frames whose path contains \texttt{site-packages}. \texttt{StdlibFrameFilter} drops frames from the standard library by checking whether the path starts with a known stdlib location (obtained from \texttt{sysconfig.get\_path}) or contains \texttt{/lib/python}. \texttt{ConftestFrameFilter} drops frames from \texttt{conftest.py} files, which belong to the tracing infrastructure itself.
@@ -141,13 +179,20 @@ The pipeline for \texttt{step\_frames} applies \texttt{TestbedOnlyFrameFilter}, 
 \section{Local Variable Serialization}
 \label{sec:serialization}
 
-At collection time, each \texttt{locals} dictionary is serialized immediately before being stored. We evaluated two approaches.
+At collection time, each \texttt{locals} dictionary is serialized immediately. Recall that $\rho : \mathcal{V} \rightharpoonup \Sigma^{*}$ maps variable names to serialized strings. We implement it through a serialization function $\sigma : \mathrm{Val} \to \Sigma^{*}$ composed with a truncation operator $\tau_k(s) = s[0:k]$:
+\[
+  \rho(x) \;=\; \tau_{1000}\!\bigl(\sigma(v_x)\bigr)
+\]
+where $v_x$ is the runtime value bound to name $x$. This is the only representation of program state the LLM ever sees: when it calls \texttt{get\_frames} or \texttt{get\_granular\_frames}, each returned $r^{\mathrm{frame}}$ carries $\rho$ entries produced by this composition. We evaluated two choices for $\sigma$.
 
-The first approach used Python's built-in \texttt{repr()} function. It requires no dependencies and always produces output. However, \texttt{repr()} has several problems in this context. Its output is Python-specific syntax, not a format the LLM can parse as structured data. For custom objects, \texttt{repr()} returns whatever the class author implemented, which may be a truncated string, a pointer address, or may raise an exception. Nested collections produce deeply nested Python literals with no consistent schema. The LLM must parse these as natural language rather than structured values.
+\medskip
+$\sigma_{\mathrm{repr}}(v) = \texttt{repr}(v)$. This requires no dependencies and always produces output. However, its output is Python-specific syntax. For custom objects, \texttt{repr()} returns whatever the class author implemented, which may be a truncated string, a pointer address, or may raise an exception. Nested collections produce deeply nested Python literals with no consistent schema, so the LLM must treat them as natural language rather than structured data.
 
-We replaced \texttt{repr()} with \texttt{jsonpickle}. The call is \texttt{jsonpickle.dumps(value, unpicklable=False)}, which produces a JSON string. Setting \texttt{unpicklable=False} strips the class metadata that \texttt{jsonpickle} normally embeds and produces clean JSON objects, arrays, and primitives. This output is structured, machine-readable, and consistent across object types. If \texttt{jsonpickle} is not installed in the container, the tracer falls back to \texttt{repr()}.
+\medskip
+$\sigma_{\mathrm{jp}}(v) = \texttt{jsonpickle.dumps}(v,\; \texttt{unpicklable=False})$. Setting \texttt{unpicklable=False} strips the class metadata that \texttt{jsonpickle} normally embeds and produces clean JSON objects, arrays, and primitives. This output is structured and consistent across types. If \texttt{jsonpickle} is not installed in the container, the tracer falls back to $\sigma_{\mathrm{repr}}$.
 
-After serialization, each value string is truncated to 1000 characters. Long lists, large data frames, or deeply nested objects can produce serialized strings that are tens of thousands of characters long. Including them in full would consume the LLM context window before the model reaches the error location. The 1000-character cutoff retains the leading structure of most values while preventing any single variable from dominating the prompt.
+\medskip
+The truncation bound $\tau_{1000}$ applies after either choice. Long lists, large data frames, or deeply nested objects can produce serialized strings tens of thousands of characters long. Truncating to 1000 characters retains the leading structure of most values while preventing any single variable from dominating the context window.
 
 
 \section{Integration with LLMs}
