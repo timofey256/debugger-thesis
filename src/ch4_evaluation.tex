@@ -2,15 +2,62 @@
 \label{ch:evaluation}
 
 \section{Experimental Setup}
-% Datasets: SWE-Bench Lite, BugsInPy, (optionally SWE-Bench Verified)
-% Models evaluated
-% Baselines: static catalog (no runtime tools)
-% Infrastructure and cost accounting
+\label{sec:eval-setup}
+
+We evaluate on SWE-bench Lite~\citep{jimenez2023swebench}, a curated subset of 300 instances drawn from 11 open-source Python repositories:
+
+\begin{center}
+\begin{tabular}{ll}
+\texttt{astropy}            & \texttt{mwaskom/seaborn}   \\
+\texttt{django}             & \texttt{psf/requests}      \\
+\texttt{flask}              & \texttt{pydata/xarray}     \\
+\texttt{matplotlib}         & \texttt{pylint-dev/pylint} \\
+\texttt{pallets/flask}      & \texttt{pytest-dev/pytest} \\
+\texttt{scikit-learn}       &                            \\
+\end{tabular}
+\end{center}
+
+Each instance corresponds to a GitHub issue with a failing test that was introduced by a real commit. The benchmark defines a binary resolution criterion: an instance is \emph{resolved} if the submitted patch causes all originally failing tests to pass without breaking any previously passing tests.
+
+Each instance runs inside an isolated Docker container managed by \texttt{TracedInstanceRunner}, as described in \Cref{ch:system-methodology}. We run each instance under two \emph{variants}:
+
+\begin{itemize}\setlength{\itemsep}{6pt}
+  \item \textbf{without\_runtime}: the LLM session uses only the four static tools (\texttt{print\_project\_tree}, \texttt{open\_file}, \texttt{search\_symbol}, \texttt{apply\_patch}). No tracing is performed. This serves as the baseline.
+  \item \textbf{with\_runtime}: the full nine-tool catalog is available, including the runtime tools (\texttt{get\_test\_error}, \texttt{get\_execution\_trace}, \texttt{get\_frames}, \texttt{get\_granular\_frames}). The tracer runs before the LLM session and populates \texttt{auto\_debug.json}.
+\end{itemize}
+
+We evaluate both variants across the following base models:
+
+\begin{itemize}\setlength{\itemsep}{6pt}
+  \item \textbf{DeepSeek}: \texttt{deepseek-chat}, \texttt{deepseek-v4-flash}, \texttt{deepseek-v4-pro}
+  \item \textbf{OpenAI}: \texttt{gpt-4o}, \texttt{o1} % TODO: confirm exact model IDs
+  \item \textbf{Open-source}: \texttt{[TODO: qwen, llama?]}
+\end{itemize}
+
+All models are accessed via OpenAI-compatible APIs. The session runs for at most 10 tool turns. Cost is calculated from token counts reported by the API at input and output token prices published by each provider.
 
 \section{Evaluation Metrics}
-% Resolved rate (% patches that pass all tests after application)
-% Localization accuracy: file / function / line level (derived from gold patch)
-% Average cost per instance ($, tokens)
+\label{sec:eval-metrics}
+
+Let $\mathcal{I}$ be the set of benchmark instances, $\mathcal{M}$ a base model, and $v \in \{\texttt{with\_runtime},\, \texttt{without\_runtime}\}$ a variant. Each run produces a status $s(i, \mathcal{M}, v) \in \{\texttt{passed}, \texttt{failed}, \texttt{apply\_failed}\}$ for each instance $i \in \mathcal{I}$.
+
+\paragraph{Resolved rate.} The primary metric is:
+\[
+  R(\mathcal{M}, v) \;=\; \frac{\bigl|\{\, i \in \mathcal{I} \;\mid\; s(i, \mathcal{M}, v) = \texttt{passed} \,\}\bigr|}{|\mathcal{I}|}
+\]
+This matches the standard SWE-bench \% resolved metric and allows direct comparison with published results.
+
+\paragraph{Localization accuracy.} The gold patch for each instance specifies which files, functions, and lines were modified to fix the bug. We compare the patch produced by the model against the gold patch and compute accuracy at three granularities:
+\[
+  L_g(\mathcal{M}, v) \;=\; \frac{|\{\, i \in \mathcal{I} \;\mid\; \mathrm{loc}_g(i, \mathcal{M}, v) = 1 \,\}|}{|\mathcal{I}|}, \quad g \in \{\texttt{file},\, \texttt{func},\, \texttt{line}\}
+\]
+where $\mathrm{loc}_g(i, \mathcal{M}, v) = 1$ if the model's patch touches at least one of the correct files (resp. functions, lines) identified in the gold patch. File-level localization is the weakest criterion and line-level the strictest.
+
+\paragraph{Cost.} For each instance we record the total input and output token counts $n_{\mathrm{in}}$, $n_{\mathrm{out}}$ and compute cost in USD using the provider's published per-token rates $p_{\mathrm{in}}$, $p_{\mathrm{out}}$:
+\[
+  c(i, \mathcal{M}) \;=\; n_{\mathrm{in}} \cdot p_{\mathrm{in}} \;+\; n_{\mathrm{out}} \cdot p_{\mathrm{out}}
+\]
+We report the mean cost $\bar{c}(\mathcal{M}, v) = \frac{1}{|\mathcal{I}|}\sum_i c(i, \mathcal{M})$ and total token counts per variant.
 
 \section{Runtime Information Impact (RQ1)}
 % Main results table: with vs without runtime tools, across models and both benchmarks
@@ -30,3 +77,4 @@
 \section{Results on BugsInPy}
 % Generalisability beyond SWE-Bench Lite
 % Same metrics, compare trends with SWE-Bench results
+
