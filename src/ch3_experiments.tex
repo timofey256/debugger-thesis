@@ -1,197 +1,201 @@
-\chapter{Experiments}
-\label{ch:evaluation}
+\chapter{Methodology}
+\label{ch:system-methodology}
 
-\section{Datasets and metrics}
+\section{System Overview}
+\label{sec:overview}
 
-\subsection{Runtime information dataset}
+Our system takes open-source Python projects with broken tests as input and produces code patches that fix the bugs causing those failures. The pipeline has six stages: framework detection, hook injection, test execution with runtime tracing, filtering and serialization of the collected data, trace selection, and LLM-driven patch generation via a tool-based session. Figure~\ref{fig:pipeline} shows the full flow.
 
-The core of our experimental setup relies on runtime information collected during test execution. This dataset captures the state of the program at the moment of test failure, providing the context needed for the language model to generate appropriate fixes.
+The starting point is a project instance in which at least one test fails. We evaluate on two benchmarks: SWE-bench Lite~\citep{jimenez2023swebench} and BugsInPy~\citep{widyasari2020bugsinpy}. In both cases the failing tests were introduced by actual commits that broke existing functionality, so the bugs are representative of real development work. When we evaluate on benchmarks, each test instance runs inside an isolated Docker container. A dedicated manager, \texttt{TracedInstanceRunner}, mounts three volumes into the container. The tracer scripts directory is mounted read-only at \texttt{/opt/tracers}, making the tracing code available inside the container without copying it into the image. A per-instance output directory is mounted read-write at \texttt{/trace\_output}; this is where \texttt{auto\_debug.json} is written after the tests finish, and the file is immediately accessible on the host once the run completes. A writable project snapshot is mounted at \texttt{/project\_mirror} and is used by the LLM tools to read source files. SWE-bench images pre-install the project source at \texttt{/testbed}; we copy that directory into \texttt{/project\_mirror} at container start, before any patch is applied, so the snapshot reflects the original buggy state. After the container is cleaned up, the host reads source files from this snapshot to build the source map that the LLM tools use when rendering code context.
 
-\subsubsection{Data format}
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[
+  node distance=0.55cm and 0cm,
+  box/.style={
+    rectangle, rounded corners=3pt,
+    draw=black!70, fill=white,
+    minimum width=6.8cm, minimum height=0.72cm,
+    text centered, font=\small
+  },
+  arr/.style={-{Stealth[length=5pt]}, thick, draw=black!60}
+]
 
-Runtime information is stored in JSON format in a file named \texttt{auto\_debug.json}. Each entry in the dataset corresponds to a single failing test and contains the following fields:
+\node[box] (A) {Project with failing tests};
+\node[box, below=of A] (B) {Framework detection};
+\node[box, below=of B] (C) {Hook injection into container};
+\node[box, below=of C] (D) {Test execution (\texttt{sys.settrace})};
+\node[box, below=of D] (E) {Runtime data collection};
+\node[box, below=of E] (F) {Filtering pipelines};
+\node[box, below=of F] (G) {Trace selection};
+\node[box, below=of G] (H) {LLM tool session};
+\node[box, below=of H] (I) {Patch submission};
+
+\draw[arr] (A) -- (B);
+\draw[arr] (B) -- (C);
+\draw[arr] (C) -- (D);
+\draw[arr] (D) -- (E);
+\draw[arr] (E) -- (F);
+\draw[arr] (F) -- (G);
+\draw[arr] (G) -- (H);
+\draw[arr] (H) -- (I);
+
+\end{tikzpicture}
+\caption{End-to-end pipeline from a failing test to a submitted patch.}
+\label{fig:pipeline}
+\end{figure}
+
+
+\section{Framework Detection}
+\label{sec:framework-detection}
+
+Python projects do not use a single testing framework. The three most common runners are pytest, the standard-library unittest, and the Django test runner. Each framework invokes tests differently and exposes hooks through incompatible APIs. Injecting tracing without first identifying the runner would fail silently or produce empty output, so we classify the framework before any instrumentation takes place.
+
+A \texttt{FrameworkDetector} inspects the project's evaluation script to assign one of four labels: \texttt{pytest}, \texttt{unittest}, \texttt{django}, or \texttt{unknown}. Detection works by scanning the eval script for known substrings: \texttt{"pytest"} or \texttt{"py.test"} indicate pytest, \texttt{"manage.py test"} or \texttt{"runtests.py"} indicate Django, and \texttt{"python -m unittest"} or \texttt{"unittest"} indicate the standard runner. If none of these match, the project is labelled unknown and tracing is skipped.
+
+Detection results are cached by \texttt{instance\_id} so that repeated runs of the same instance do not re-scan the script.
+
+
+\section{Hook Injection}
+\label{sec:hook-injection}
+
+\subsection{CPython tracing API}
+
+CPython exposes a low-level tracing interface through \texttt{sys.settrace}. Any Python function can register a trace callback, which the interpreter then calls on three frame events: \texttt{call} (a function is entered), \texttt{line} (a source line is about to execute), and \texttt{return} (a function is about to return). The callback receives the live frame object, giving access to the current file, line number, function name, and local variable dictionary. Because the callback runs inside the interpreter loop, it observes every statement without any modification to the code under test.
+
+\subsection{Pytest injection via conftest.py}
+
+In a pytest project, \texttt{conftest.py} is a plugin file that pytest discovers and loads automatically before running tests in its directory. Placing hooks in the root \texttt{conftest.py} therefore affects every test in the project without touching the test files themselves.
+
+We inject tracing by copying our tracer script into the project root as \texttt{conftest.py}. If the project already has a \texttt{conftest.py}, we back it up first. Our tracer defines two pytest hooks. The first hook, \texttt{pytest\_runtest\_call}, wraps each test execution: it installs our trace function via \texttt{sys.settrace} before the test runs and restores the previous one afterwards. The second hook, \texttt{pytest\_runtest\_makereport}, fires after each test and writes the collected data to an in-memory store when the test has failed. At session end, the \texttt{pytest\_sessionfinish} hook writes the entire store to \texttt{auto\_debug.json}.
+
+\subsection{Other frameworks}
+
+For unittest and Django projects, conftest.py is not available. We use a different injection mechanism that exploits CPython's module initialisation order. Before the tests run, the harness prepends \texttt{/opt/tracers} to \texttt{PYTHONPATH} and exports \texttt{AUTO\_DEBUG\_FRAMEWORK} with the detected framework name. CPython imports \texttt{sitecustomize.py} automatically from any directory on \texttt{PYTHONPATH} during interpreter startup, before any user code runs. Our \texttt{sitecustomize.py} reads \texttt{AUTO\_DEBUG\_FRAMEWORK} and dispatches to the appropriate injector: for unittest it calls \texttt{inject\_unittest\_tracer()}, which monkey-patches \texttt{unittest.TestResult} methods (\texttt{startTest}, \texttt{stopTest}, \texttt{addError}, \texttt{addFailure}) to install and remove the \texttt{sys.settrace} callback around each test; for Django it calls the equivalent \texttt{inject\_django\_tracer()}. Because the injection happens before the test runner starts, neither the project code nor the runner needs to be modified. Both wrappers produce output in the same \texttt{auto\_debug.json} format as the pytest tracer.
+
+\subsection{Collected events}
+
+Regardless of framework, the trace callback records three event types:
 
 \begin{itemize}
-    \item \textbf{nodeid}: A fully qualified pytest test identifier in the format \texttt{module::TestClass::test\_method}, uniquely identifying the failing test.
-    \item \textbf{exc\_type}: The exception class name (e.g., \texttt{AssertionError}, \texttt{TypeError}, \texttt{ValueError}) that caused the test failure.
-    \item \textbf{message}: The exception message providing details about the failure.
-    \item \textbf{frames}: An array of stack frames representing the call chain leading to the exception. Only frames from application code are included, excluding standard library and third-party dependencies.
+    \item \textbf{call} events: the tracer appends a record with the file path, function name, and entry line number. No local variables are captured at this point.
+    \item \textbf{line} events: the tracer appends a full frame snapshot including local variables at the moment that source line is reached.
+    \item \textbf{return} events: the tracer appends a full frame snapshot including local variables at the point of return.
 \end{itemize}
 
-Each frame in the \texttt{frames} array contains:
+These three collections correspond directly to the three data structures described in \cref{sec:data-structures}.
 
-\begin{itemize}
-    \item \textbf{file}: Absolute path to the source file.
-    \item \textbf{line}: Line number where the exception occurred.
-    \item \textbf{func}: Function name.
-    \item \textbf{locals}: A dictionary of local variable names mapped to their serialized values at the point of execution.
-\end{itemize}
 
-An example entry from the runtime information dataset:
+\section{Collected Data Structures}
+\label{sec:data-structures}
 
+At session end the tracer writes all collected data to a file named \texttt{auto\_debug.json}. This file is a JSON array where each element corresponds to one failing test. An element contains the test's node identifier, the exception type and message, and three runtime data structures.
+
+\textbf{exec\_path} is built from \texttt{call} events. Each record contains \texttt{file}, \texttt{func}, and \texttt{line} but no local variables. It represents the sequence of functions called during the test and gives the LLM a compact call trace without variable noise.
+
+\textbf{frames} is built from \texttt{return} events. Each record contains \texttt{file}, \texttt{func}, \texttt{line}, and \texttt{locals}. It captures the state of each function at the moment it returned, providing a view similar to a traceback enriched with variable snapshots.
+
+\textbf{step\_frames} is built from \texttt{line} events. Each record contains \texttt{file}, \texttt{func}, \texttt{line}, and \texttt{locals}. It captures the local variable state at every source line executed during the test, in order.
+
+Initially, we collected only entry and exit frames, believing that knowing which functions were called and what state they returned in would be sufficient to analyse runtime behaviour. This proved inadequate in practice. Empirically we observed that models given only entry and exit information struggled to localise bugs that corrupted state midway through a function, and logically this makes sense: entry frames carry no variables at all, and exit frames show only the final state at return. A bug that overwrites a variable partway through a loop or a conditional branch is invisible to both. To give the model a more granular view of what happened inside each function, we added line-level recording. With \texttt{step\_frames}, the LLM can request the execution history of a specific function and see how each local variable evolves statement by statement.
+
+The top-level structure of a single entry in \texttt{auto\_debug.json} is shown in Listing~\ref{lst:trace-entry}.
+
+\begin{figure}[ht]
 \begin{verbatim}
 {
-  "nodeid": "tests/test_validator.py::TestValidator::test_type",
-  "exc_type": "AssertionError",
-  "message": "Expected type 'string', got 'integer'",
-  "frames": [
-    {
-      "file": "/path/to/validator.py",
-      "line": 42,
-      "func": "validate_type",
-      "locals": {
-        "expected": "\"string\"",
-        "actual": "\"integer\"",
-        "value": "123"
-      }
-    }
-  ]
+  "nodeid":      "tests/test_foo.py::TestFoo::test_bar",
+  "exc_type":    "AssertionError",
+  "message":     "expected 3, got 4",
+  "frames":      [ { "file": "...", "line": 42,
+                     "func": "compute", "locals": {...} } ],
+  "exec_path":   [ { "file": "...", "line": 10,
+                     "func": "compute" } ],
+  "step_frames": [ { "file": "...", "line": 11,
+                     "func": "compute", "locals": {...} } ]
 }
 \end{verbatim}
+\caption{Structure of a single entry in \texttt{auto\_debug.json}.}
+\label{lst:trace-entry}
+\end{figure}
 
-\subsubsection{Data collection mechanism}
 
-Runtime information is collected through pytest hooks implemented in a \texttt{conftest.py} file. The implementation uses the \texttt{pytest\_runtest\_makereport} hook with \texttt{tryfirst=True} priority, which intercepts test reports after each test phase. When a test fails during the call phase, the hook accesses the live traceback through \texttt{call.excinfo}.
+\section{Filtering Pipelines}
+\label{sec:filtering}
 
-The collection process applies filtering to focus on relevant frames. Frames are excluded if their filename contains angle brackets (indicating frozen modules), the substring "frozen", or "site-packages". This filtering ensures that only application code frames are captured, significantly reducing the volume of data while maintaining the information necessary for debugging.
+Raw traces contain frames from the Python standard library, third-party packages, pytest internals, and the tracing infrastructure itself. These frames carry no useful debugging signal and inflate the data. We apply three separate filtering pipelines, one per data structure, because the noise profile and volume differ across them. Each pipeline is a composition of custom heuristic filters that express domain knowledge about which frames are relevant for debugging application code.
 
-Variable serialization is performed using \texttt{jsonpickle.dumps()} with \texttt{unpicklable=False} to produce JSON-compatible representations. To prevent excessive data volume from large objects, each serialized variable value is truncated to 1000 characters. While this truncation may lose some details, it ensures that the dataset remains manageable while preserving the most relevant debugging information.
+\subsection{Traceback frame pipeline}
 
-The collected data is accumulated in memory during the test session and written to disk when the session finishes, using the \texttt{pytest\_sessionfinish} hook. This approach minimizes I/O overhead during test execution.
+The pipeline for \texttt{frames} applies four filters in sequence. \texttt{FrozenOrSyntheticFrameFilter} drops frames whose file path contains \texttt{<} or the substring \texttt{frozen}; these correspond to frozen importlib modules that have no real source. \texttt{SitePackagesFrameFilter} drops frames whose path contains \texttt{site-packages}. \texttt{StdlibFrameFilter} drops frames from the standard library by checking whether the path starts with a known stdlib location (obtained from \texttt{sysconfig.get\_path}) or contains \texttt{/lib/python}. \texttt{ConftestFrameFilter} drops frames from \texttt{conftest.py} files, which belong to the tracing infrastructure itself.
 
-\subsection{Runtime-information rich projects}
+\subsection{Execution path pipeline}
 
-We evaluate our system on open-source Python projects with comprehensive test suites. These projects serve as the primary evaluation datasets, providing real-world code and tests on which to measure the system's effectiveness.
+The pipeline for \texttt{exec\_path} applies \texttt{TestbedOnlyFrameFilter} (keeps only paths from the project under test, excluding \texttt{site-packages}), \texttt{ConftestFrameFilter}, \texttt{DedupFrameFilter} keyed on \texttt{(file, func)}, and \texttt{MaxEntriesFrameFilter} with a cap of 500. The dedup step collapses recursive or repeated calls to the same function into a single entry. Because \texttt{exec\_path} records have no locals, the 500-entry cap is sufficient to represent the call graph without truncating critical paths.
 
-\subsubsection{Selection criteria}
+\subsection{Step frames pipeline}
 
-Projects are selected based on the following criteria:
+The pipeline for \texttt{step\_frames} applies \texttt{TestbedOnlyFrameFilter}, \texttt{ConftestFrameFilter}, \texttt{DedupFrameFilter} keyed on \texttt{(file, func, line)}, and \texttt{MaxEntriesFrameFilter} with a cap of 2000. The dedup key includes the line number so that only the first execution of each source line is retained. This preserves the initial variable state at each line and avoids accumulating thousands of identical snapshots from loops. The higher cap reflects that step frames are accessed selectively by the LLM: the \texttt{get\_granular\_frames} tool accepts a function name and returns only the step frames for that function, so the full list is rarely serialized at once.
 
-\begin{itemize}
-    \item \textbf{Open-source availability}: The project must be publicly available to ensure reproducibility.
-    \item \textbf{Comprehensive test coverage}: The project must have extensive test suites to provide sufficient failing tests for evaluation.
-    \item \textbf{Python implementation}: Projects must be written in Python to match the scope of our pytest-based data collection infrastructure.
-    \item \textbf{Active development}: Projects should be actively maintained, ensuring that bugs and test failures are representative of current development practices.
-\end{itemize}
 
-These criteria ensure that our evaluation reflects realistic scenarios where developers would use debugger-enhanced code completion.
+\section{Local Variable Serialization}
+\label{sec:serialization}
 
-\subsubsection{Current evaluation dataset}
+At collection time, each \texttt{locals} dictionary is serialized immediately before being stored. We evaluated two approaches.
 
-The primary evaluation dataset is the JSONSchema library (\url{https://github.com/python-jsonschema/jsonschema}), a Python implementation of JSON Schema validation. This project contains hundreds of tests organized in a pytest-compatible structure. The test suite includes both unit tests for individual validation functions and extensive data-driven tests using JSON test files. The variety of test types and the complexity of validation logic make JSONSchema representative of real-world Python projects.
+The first approach used Python's built-in \texttt{repr()} function. It requires no dependencies and always produces output. However, \texttt{repr()} has several problems in this context. Its output is Python-specific syntax, not a format the LLM can parse as structured data. For custom objects, \texttt{repr()} returns whatever the class author implemented, which may be a truncated string, a pointer address, or may raise an exception. Nested collections produce deeply nested Python literals with no consistent schema. The LLM must parse these as natural language rather than structured values.
 
-\subsubsection{Planned evaluation datasets}
+We replaced \texttt{repr()} with \texttt{jsonpickle}. The call is \texttt{jsonpickle.dumps(value, unpicklable=False)}, which produces a JSON string. Setting \texttt{unpicklable=False} strips the class metadata that \texttt{jsonpickle} normally embeds and produces clean JSON objects, arrays, and primitives. This output is structured, machine-readable, and consistent across object types. If \texttt{jsonpickle} is not installed in the container, the tracer falls back to \texttt{repr()}.
 
-We plan to expand the evaluation to include the following projects:
+After serialization, each value string is truncated to 1000 characters. Long lists, large data frames, or deeply nested objects can produce serialized strings that are tens of thousands of characters long. Including them in full would consume the LLM context window before the model reaches the error location. The 1000-character cutoff retains the leading structure of most values while preventing any single variable from dominating the prompt.
 
-\begin{itemize}
-    \item \textbf{pytest} (\url{https://github.com/pytest-dev/pytest}): A widely-used testing framework with a large test suite.
-    \item \textbf{Pandas} (\url{https://github.com/pandas-dev/pandas}): A data manipulation library with complex data structures and algorithms.
-    \item \textbf{Flask} (\url{https://github.com/pallets/flask}): A web framework with tests covering HTTP handling and request processing.
-    \item \textbf{Django} (\url{https://github.com/django/django}): A comprehensive web framework with extensive test coverage.
-    \item \textbf{Slipcover} (\url{https://github.com/plasma-umass/slipcover}): A coverage measurement tool.
-\end{itemize}
 
-The diversity of these projects addresses our research questions by providing varied code patterns and debugging scenarios. Projects like pytest and Flask involve I/O and external dependencies, testing the system's ability to handle side effects. Data-intensive projects like Pandas test the system on algorithmic code. This variety allows us to assess whether runtime information provides consistent benefits across different domains (RQ1) and to identify which trace information is most valuable in different contexts (RQ2).
+\section{Integration with LLMs}
+\label{sec:llm-integration}
 
-\subsection{BugsInPy dataset}
+\subsection{Trace selection}
+\label{subsec:trace-selection}
 
-BugsInPy is a benchmark dataset of real-world Python bugs from popular open-source projects. It serves as a validation dataset for evaluating our system's ability to fix authentic bugs encountered in production code.
+A project instance may have multiple failing tests, each producing its own entry in \texttt{auto\_debug.json}. For the LLM session we select a single representative trace. The current heuristic selects the first entry in the list. This is a deliberate simplification: more sophisticated strategies such as selecting the trace with the deepest frame stack, the most distinct exception type, or the most variable-rich locals were considered but not implemented. The first-trace heuristic is deterministic and easy to reason about, which is important for reproducibility.
 
-The dataset consists of hand-picked bug cases from Python projects. Each case in BugsInPy includes three components:
+\subsection{Initial static prompt approach}
+\label{subsec:static-prompt}
 
-\begin{itemize}
-    \item A commit with failing tests that expose the bug.
-    \item A commit with the fixed code that resolves the issue.
-    \item The code diff between the buggy and fixed versions.
-\end{itemize}
+The first iteration of LLM integration built a single prompt from the collected trace data and passed it to the model in one shot. The prompt was assembled from four XML-tagged sections: \texttt{<intro>} with a task description, \texttt{<exception>} with the exception type and message, \texttt{<runtime\_trace>} with the serialized frames, and \texttt{<instructions>} with output format requirements. For each frame in the trace, the prompt builder opened the corresponding source file on the host filesystem and included ten lines of context around the frame's line number.
 
-We use BugsInPy to validate our debugger-enhanced code completion system against real-life bug scenarios. The availability of both failing tests and verified fixes allows us to measure whether the system can generate patches that match or approximate the actual developer fixes. This validation establishes external validity by demonstrating that the system performs on authentic bugs rather than only synthetic test cases.
+This approach has three problems. First, it requires access to the project's source files on the host at prompt-generation time, which is unavailable in the containerized evaluation environment used for SWE-bench instances. Second, the prompt is fixed: once generated, the model cannot ask follow-up questions or inspect parts of the code that the prompt did not include. Third, the ten-line context windows around each frame are included regardless of relevance, which can fill the context window with code the model does not need.
 
-The use of BugsInPy complements our evaluation on runtime-information rich projects by providing a standardized benchmark that enables comparison with other bug repair approaches.
+\subsection{Tool-based approach}
+\label{subsec:tool-based}
 
-\subsection{Experimental pipeline}
+We replaced the static prompt with an interactive tool session. The model receives a short initial prompt describing the failing test and is given access to a set of tools it can call iteratively before submitting a patch. This mirrors how a human developer investigates a bug: they look at the error, navigate to the relevant code, inspect variable states, search for symbol definitions, and only then write a fix.
 
-The experimental evaluation follows a systematic pipeline that transforms failing tests into code fixes and measures their effectiveness. The pipeline consists of three main phases: data collection, prompt generation, and evaluation.
+The session runs for at most \texttt{max\_tool\_turns} turns (default 10). On each turn the model issues one or more tool calls. The system executes each call, returns the result, and appends both to the message history. When the model calls \texttt{apply\_patch}, the session ends immediately and the patch is extracted from the tool argument. When the model calls \texttt{get\_frames} or \texttt{get\_granular\_frames}, each frame in the response includes surrounding source lines rendered from the pre-loaded source map alongside the local variable snapshot, so the model gets code context on demand rather than all at once.
 
-\subsubsection{Data collection phase}
+\subsection{Available tools}
+\label{subsec:tools}
 
-The pipeline begins with test execution instrumented with the pytest hooks described previously. When tests are run with the custom \texttt{conftest.py} configuration, each failing test triggers the hook mechanism, which captures runtime information and stores it in \texttt{auto\_debug.json}. This phase is fully automated and requires no manual intervention beyond configuring the project to use the instrumented conftest file.
+Table~\ref{tab:tools} lists all nine tools. They are grouped into two catalogs. The \emph{runtime catalog} contains all nine tools and is used when trace data is available. The \emph{static catalog} contains only the four project-inspection tools (\texttt{print\_project\_tree}, \texttt{open\_file}, \texttt{search\_symbol}, \texttt{apply\_patch}) and is used for baselines or ablations where no runtime data was collected.
 
-\subsubsection{Prompt generation phase}
+\begin{table}[ht]
+\centering
+\caption{LLM tools exposed during the tool session.}
+\label{tab:tools}
+\begin{tabular}{@{}lp{8.2cm}@{}}
+\toprule
+\textbf{Tool name} & \textbf{Description} \\
+\midrule
+\texttt{print\_project\_tree}  & Prints the directory tree of the project, listing folders and \texttt{.py} files. \\
+\texttt{open\_file}            & Reads a range of lines from a source file given a start and end line number. \\
+\texttt{search\_symbol}        & Searches all \texttt{.py} files for a literal symbol string. \\
+\texttt{get\_test\_error}      & Returns the exception type and message from the selected trace. \\
+\texttt{get\_execution\_trace} & Returns the serialized \texttt{exec\_path}: the list of functions called during the test. \\
+\texttt{get\_frames}           & Returns the serialized \texttt{frames}: return-event snapshots with locals and source context. \\
+\texttt{get\_granular\_frames} & Returns the \texttt{step\_frames} for a named function: line-level snapshots with locals. \\
+\texttt{get\_variable\_change} & Intended to return variable value transitions over execution. Currently unimplemented. \\
+\texttt{apply\_patch}          & Accepts a unified diff patch, terminates the tool session, and submits the fix. \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-The collected debug data is transformed into prompts for the language model. The prompt generation process, implemented in \texttt{generate\_prompt.py}, reads entries from \texttt{auto\_debug.json} and constructs a structured prompt containing:
-
-\begin{enumerate}
-    \item The exception type and message.
-    \item Runtime trace frames with source code context (10 lines before and after each frame location).
-    \item Local variable values at each frame.
-    \item Instructions specifying that the output should be a unified diff patch.
-    \item Examples of the correct diff format.
-\end{enumerate}
-
-This prompt provides the language model with both the error symptoms and the runtime state that led to the failure, enabling context-aware code generation.
-
-\subsubsection{Evaluation phase}
-
-The language model generates a unified diff patch in response to the prompt. The patch is parsed by \texttt{apply\_patch.py} and applied to the source files. Tests are then re-executed to determine whether the generated patch resolves the failure. The evaluation harness in \texttt{run\_automated\_testing.py} coordinates this process and collects metrics on test pass rates, edit distances, and execution time.
-
-This three-phase pipeline enables systematic evaluation across multiple projects and test cases. The automation of data collection and evaluation ensures reproducibility and allows for large-scale experiments across different model configurations and ablation conditions.
-
-\subsection{Metrics}
-
-We employ four metrics to evaluate the effectiveness of debugger-enhanced code completion. These metrics assess different aspects of the system's performance, from functional correctness to code similarity and efficiency.
-
-\subsubsection{Functional correctness}
-
-Functional correctness measures whether the generated code fix successfully resolves the test failure. This is the primary metric, as it directly assesses the system's ability to achieve its main objective: fixing bugs.
-
-The metric is calculated as the ratio of passed tests after applying the generated patch to the total number of tests:
-
-\[
-\text{Functional Correctness} = \frac{\text{passed\_tests\_after}}{\text{total\_tests}}
-\]
-
-This is a binary metric at the level of individual fixes. A generated patch either resolves the failing test or it does not. At the aggregate level, functional correctness represents the percentage of test failures that the system successfully fixes.
-
-\subsubsection{Edit distance}
-
-Edit distance quantifies the syntactic similarity between the original code and the generated fix. We use Levenshtein distance, which measures the minimum number of single-character edits (insertions, deletions, or substitutions) required to transform one string into another.
-
-For code generation, edit distance provides insight into how extensively the system modifies the code. Lower edit distances indicate that the fix is minimal and localized, while higher distances suggest more substantial changes.
-
-\subsubsection{Normalized edit distance}
-
-Normalized edit distance adjusts the raw edit distance by the length of the original code:
-
-\[
-\text{Normalized Edit Distance} = \frac{\text{edit\_distance}}{\text{original\_code\_length}}
-\]
-
-This normalization allows for fair comparison across functions of different sizes. A normalized distance of 0.1, for example, indicates that the changes represent approximately 10\% of the original code length.
-
-\subsubsection{Execution time}
-
-Execution time measures the time required to generate a valid code fix. This metric includes the time for prompt generation, language model inference, and patch application. It does not include the initial test execution time for data collection, as that is a one-time cost per project.
-
-Execution time is important for assessing the practical usability of the system. Shorter execution times enable faster iteration during development.
-
-\subsubsection{Metric selection rationale}
-
-These metrics were selected to address our research questions:
-
-\begin{itemize}
-    \item \textbf{RQ1} (Can execution traces improve bug repair?): Functional correctness directly measures the improvement in bug repair success rate when runtime information is provided.
-    \item \textbf{RQ2} (What trace information is needed?): Edit distance and normalized edit distance help identify whether certain trace information leads to more focused, minimal fixes.
-    \item \textbf{RQ3} (Fine-tuning vs. prompting?): All metrics apply when comparing different model configurations, allowing comprehensive comparison of approaches.
-\end{itemize}
-
-These metrics are standard in code generation and program repair research, enabling comparison with related work. Functional correctness aligns with pass@k metrics used in code generation benchmarks, while edit distance is commonly used to measure patch quality in automated program repair.
-
-\section{Baseline}
-
-\section{Injecting runtime information into prompts}
-
-\section{Finetuning on runtime data}
-
-\section{Ablation studies}
+The \texttt{apply\_patch} tool acts as the session terminator. Once the model calls it with a valid unified diff, the runner extracts the patch and stops processing further turns. If the model exhausts all turns without calling \texttt{apply\_patch}, the system attempts to extract a diff from the final assistant message as a fallback. If no patch can be found, the session returns an empty string and the instance is counted as a failure.
