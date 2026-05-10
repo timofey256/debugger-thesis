@@ -1,0 +1,32 @@
+\chapter{Evaluation}
+\label{ch:evaluation}
+
+\section{Experimental Setup}
+% Datasets: SWE-Bench Lite, BugsInPy, (optionally SWE-Bench Verified)
+% Models evaluated
+% Baselines: static catalog (no runtime tools)
+% Infrastructure and cost accounting
+
+\section{Evaluation Metrics}
+% Resolved rate (% patches that pass all tests after application)
+% Localization accuracy: file / function / line level (derived from gold patch)
+% Average cost per instance ($, tokens)
+
+\section{Runtime Information Impact (RQ1)}
+% Main results table: with vs without runtime tools, across models and both benchmarks
+
+\section{Runtime Data Structure Ablation (RQ2)}
+% exec_path only vs frames only vs step_frames vs all combinations
+% Which structures contribute most to resolved rate
+
+\section{Localization Analysis}
+% File-level, function-level, line-level accuracy against gold patch
+% Correlation between localisation accuracy and resolved rate
+
+\section{Cost and Efficiency}
+% Avg tokens and cost per instance across configurations
+% Tool call distribution: which tools are called most often
+
+\section{Results on BugsInPy}
+% Generalisability beyond SWE-Bench Lite
+% Same metrics, compare trends with SWE-Bench results
