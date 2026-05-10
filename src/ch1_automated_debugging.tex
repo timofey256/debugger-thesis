@@ -3,31 +3,62 @@
 
 \section{Traditional and Learning-Based Program Repair}
 
-Automated Program Repair (APR) has historically been dominated by search-based and constraint-based techniques. These traditional methods view program repair as an optimization problem or a constraint satisfaction task, relying heavily on test suites to validate candidate patches. While effective for specific classes of bugs (e.g., buffer overflows or integer errors), they often struggle with the complexity of real-world software and lack the flexibility to fix semantic errors that require an understanding of developer intent \citep{zhang2023surveylearningbasedautomatedprogram}.
+Automated Program Repair (APR) has historically been dominated by search-based and constraint-based techniques. These methods treat repair as an optimization or constraint satisfaction problem, relying on test suites to validate candidate patches. They perform well on specific bug classes such as buffer overflows or integer errors, but fail on semantic errors that require understanding developer intent \citep{zhang2023surveylearningbasedautomatedprogram}.
 
-The emergence of Deep Learning, and specifically Large Language Models (LLMs), has catalyzed a paradigm shift. Unlike traditional approaches that rely on predefined templates or heuristic search, learning-based approaches leverage vast corpora of code to predict patches, treating repair as a translation or generation task \citep{yang2025surveyllmbasedautomatedprogram}.
+The adoption of Large Language Models (LLMs) changed the approach fundamentally. Learning-based systems train on large code corpora and treat repair as a generation task, moving away from predefined templates and heuristic search \citep{yang2025surveyllmbasedautomatedprogram}.
 
 \section{Prompting and LLM-Based Debugging}
 
-Modern Automated Program Repair (APR) relies heavily on Large Language Models (LLMs). Fundamentally, these models are based on the Transformer architecture introduced by \citet{vaswani2017attention}. The core innovation of the Transformer is the self-attention mechanism, which allows the model to weigh the importance of different tokens in a sequence relative to one another, regardless of their distance. In the context of software engineering, this capability is very important: it enables the model to capture long-range dependencies between variable definitions and their usages, modeling the syntax and semantics of programming languages \citep{austin2021program}.
+Modern Automated Program Repair (APR) relies on Large Language Models (LLMs) built on the Transformer architecture \citep{vaswani2017attention}. The self-attention mechanism allows the model to weigh the importance of different tokens relative to one another regardless of their distance, which enables it to capture long-range dependencies between variable definitions and their usages and to model the syntax and semantics of programming languages \citep{austin2021program}.
 
-However, naive prompting often fails on complex logical bugs. To address this, researchers have developed "conversational" repair loops. For example, \citet{chen2023teaching} introduced the concept of \textit{Self-Debugging}, where an LLM is prompted to explain its code, identify errors based on execution feedback, and iteratively refine its own output. This mimics a developer's "inner monologue" but is often limited by the model's inability to see the actual runtime state.
+Naive prompting fails on complex logical bugs. Researchers have developed conversational repair loops to address this. \citet{chen2023teaching} introduced \textit{Self-Debugging}, where an LLM is prompted to explain its code, identify errors based on execution feedback, and iteratively refine its own output. The approach is limited by the model's inability to observe actual runtime state.
 
-More advanced frameworks attempt to bridge this gap by simulating human debugging workflows. \citet{zhong2024debug} proposed a "Debug like a Human" approach, which forces the model to verify runtime execution step-by-step. By explicitly prompting the model to reason about the control flow and variable states before generating a patch, these methods aim to reduce the "hallucination" of fixes that look syntactically correct but fail functionally.
+Other frameworks go further by simulating human debugging workflows. \citet{zhong2024debug} proposed a "Debug like a Human" approach that forces the model to verify runtime execution step-by-step. By prompting the model to reason about control flow and variable states before generating a patch, these methods aim to reduce fixes that look syntactically correct but fail functionally.
 
-Despite these advancements, standard prompting approaches suffer from a lack of \textit{bi-directional reasoning}. Effective debugging requires not only \textit{forward inference} (predicting outputs from inputs) but also \textit{backward reasoning}—deducing the root cause of an observed error state. Without access to explicit execution traces, LLMs often struggle to perform this backward inference reliably.
+Standard prompting approaches share a structural weakness: effective debugging requires both \textit{forward inference} (predicting outputs from inputs) and \textit{backward reasoning}, meaning deducing the root cause from an observed error state. Without execution traces, LLMs must perform this backward inference from static code alone, which is unreliable.
 
 \section{Fine-Tuning on Runtime Information}
 
-Given the limitations of prompting, a natural next step in research has been to fine-tune LLMs specifically on datasets augmented with runtime information. The hypothesis is that exposing models to execution traces during training would allow them to internalize the relationship between code structure and runtime behavior.
+Researchers have also explored fine-tuning LLMs on datasets augmented with runtime information. The hypothesis is that exposing models to execution traces during training allows them to internalize the relationship between code structure and runtime behavior.
 
-However, recent empirical studies cast doubt on the efficacy of this direct fine-tuning approach. \citet{wang2025codesemanticshelpcomprehensive} conducted a comprehensive study on execution trace-based information, finding that simply appending trace data to the training context does not consistently improve repair performance for general-purpose code LLMs. They argue that the noise and complexity of raw traces can overwhelm the model's attention mechanisms. Similarly, \citet{han2025rethinkingcapabilityfinetunedlanguage} re-evaluated the capabilities of fine-tuned models for vulnerability repair, suggesting that standard fine-tuning often leads to overfitting on specific bug patterns rather than fostering a genuine understanding of program semantics.
+Recent empirical studies cast doubt on this approach. \citet{wang2025codesemanticshelpcomprehensive} conducted a comprehensive study on execution trace-based information, finding that appending trace data to the training context does not consistently improve repair performance for general-purpose code LLMs. They argue that the noise and complexity of raw traces can overwhelm the model's attention mechanisms. \citet{han2025rethinkingcapabilityfinetunedlanguage} re-evaluated fine-tuned models for vulnerability repair and found that standard fine-tuning often leads to overfitting on specific bug patterns rather than building an understanding of program semantics.
 
-Taken together, these results make it hard to draw a simple conclusion about whether fine-tuning “helps.” On the one hand, naïvely appending raw traces and fine-tuning does not reliably improve repair performance. On the other hand, work on execution-centric training suggests that models can learn substantially more about program semantics when they are trained to predict execution-relevant signals (for example, intermediate states), rather than when traces are treated as unstructured extra text \citep{armengolestape2025execution}. For this thesis, we therefore treat fine-tuning as an open empirical question and focus primarily on inference-time use of runtime context.
+These results do not permit a simple conclusion. Appending raw traces and fine-tuning does not reliably improve repair performance. Work on execution-centric training suggests that models can learn substantially more about program semantics when trained to predict execution-relevant signals such as intermediate states, rather than when traces are treated as unstructured extra text \citep{armengolestape2025execution}. We treat fine-tuning as an open empirical question and focus primarily on inference-time use of runtime context.
+
+\section{Agents}
+\label{sec:agent-repair}
+
+\citet{jimenez2023swebench} introduced SWE-bench, an evaluation framework of 2,294 software engineering problems drawn from real GitHub issues and pull requests across 12 popular Python repositories. Given a codebase and an issue description, a model must produce a patch that passes the associated test suite. When first published, the best-performing model, Claude 2, solved 1.96\% of issues. SWE-bench Lite is a 300-instance subset that has become the standard comparison point.
+
+The dominant early approach treats repair as an interactive task. \citet{yang2024sweagent} introduced SWE-agent, which gives a language model a custom Agent-Computer Interface (ACI) with file viewing, editing, code search, and test execution. The model interacts with the repository iteratively, issuing commands and observing their outputs before producing a patch. This paradigm is an instance of the ReAct framework \citep{yao2022react}, which alternates Thought, Action, and Observation steps until the agent submits a result (Algorithm~\ref{alg:react}). SWE-agent reached 12.5\% pass@1 on SWE-bench Lite with GPT-4. \citet{zhang2024autocoderover} proposed AutoCodeRover, which replaces raw file navigation with AST-level code search and spectrum-based fault localization, allowing the model to retrieve class definitions and method signatures directly rather than reading entire files. AutoCodeRover reached 19\% pass@1 on SWE-bench Lite.
+
+\begin{algorithm}[ht]
+\caption{ReAct agent loop, the basis of interactive SWE agents \citep{yao2022react}.}
+\label{alg:react}
+\begin{algorithmic}[1]
+\Require task $T$, tool set $\mathcal{A}$, max turns $K$
+\Ensure patch or failure
+\State context $\gets$ [\textsc{SystemPrompt}, $T$]
+\For{$t = 1, \ldots, K$}
+    \State thought $\gets \text{LLM}(\text{context})$ \Comment{model reasons about next step}
+    \State action $\gets \text{LLM}(\text{context, thought})$ \Comment{selects tool and arguments}
+    \If{action $= \textsc{Finish}(\textit{patch})$}
+        \Return \textit{patch}
+    \EndIf
+    \State obs $\gets \text{Execute}(\text{action})$ \Comment{tool returns observation}
+    \State context $\gets$ context $+$ [thought, action, obs]
+\EndFor
+\Return failure
+\end{algorithmic}
+\end{algorithm}
+
+\citet{xia2024agentless} proposed Agentless, which replaces the interactive loop with a fixed three-phase pipeline: hierarchical fault localization (file, then function, then line), patch generation by sampling multiple candidates, and patch selection by re-running tests. The model does not choose its next action; the pipeline is fixed by the system. Agentless reached 32\% pass@1 on SWE-bench Lite at a cost of \$0.70 per instance, outperforming contemporary interactive agents at lower cost. The result shows that structured localization before generation carries more of the benefit than iterative interaction. \citet{yang2025kimidev} extended this with Kimi-Dev, which uses Agentless-style training as a skill prior. The model first trains on the structured pipeline to internalize localization, code editing, and self-reflection patterns, then adapts to agent interaction via fine-tuning on 5,000 publicly available trajectories. Kimi-Dev reached 60.4\% on SWE-bench Verified using the workflow approach and 48.6\% pass@1 with agent adaptation.
+
+As reported pass@1 numbers have grown rapidly, several papers have raised concerns about what these numbers measure. \citet{liang2025sweillusion} showed that state-of-the-art models can identify the buggy file path from the issue description alone, without repository access, at up to 76\% accuracy. On repositories outside SWE-bench the same models drop to 53\%, suggesting that part of the apparent localization ability reflects memorization rather than reasoning. \citet{martinez2025dissecting} analyzed 178 leaderboard submissions and found that many systems do not disclose whether their pass@1 comes from a single attempt or from reranking across multiple sampled patches, making comparisons unreliable without transparent evaluation protocols.
 
 \section{Code World Models}
 
-To address the shortcomings of standard fine-tuning, the frontier of APR research has moved toward "Code World Models." These are systems designed to simulate the program's execution environment, effectively treating code generation as a state-transition prediction task rather than simple text completion.
+APR research has moved toward systems called "Code World Models" that simulate the program's execution environment, treating code generation as a state-transition prediction task rather than text completion.
 
 \begin{figure}[ht]
     \centering
@@ -38,11 +69,11 @@ To address the shortcomings of standard fine-tuning, the frontier of APR researc
 \end{figure}
 
 \subsection{Learning to Reason About Execution}
-Early work in this direction focuses on teaching models to predict execution explicitly. \citet{ni2024nextteachinglargelanguage} introduced \textit{NExT} (Naturalized Execution Tuning), a method that teaches LLMs to reason about code execution by generating natural language rationales derived from execution traces. By training the model to articulate the runtime behavior, NExT bridges the gap between static code and dynamic logic.
+\citet{ni2024nextteachinglargelanguage} introduced \textit{NExT} (Naturalized Execution Tuning), a method that teaches LLMs to reason about code execution by generating natural language rationales derived from execution traces. By training the model to articulate the runtime behavior, NExT connects static code with dynamic logic.
 
 \subsection{World Models as Simulators}
-The culmination of this trend is represented by the \textit{Code World Model (CWM)} \citep{cwm2025}. Unlike previous models that only see code text, CWM is trained on "observation-action trajectories" from interactive environments (such as Python interpreters and terminals). This allows the model to act as a simulator: given a current state and a code modification, it can predict the subsequent state of the system.
+The most complete expression of this approach is the \textit{Code World Model (CWM)} \citep{cwm2025}. Unlike previous models that only see code text, CWM is trained on "observation-action trajectories" from interactive environments (such as Python interpreters and terminals). This allows the model to act as a simulator: given a current state and a code modification, it can predict the subsequent state of the system.
 
-As illustrated in \cref{fig:cwm_stages}, the transition from a general-purpose model to a world model requires more than just instruction tuning; it requires exposure to the sequential 'trajectories' of execution, which allows the model to map code edits directly to state changes.
+As illustrated in \cref{fig:cwm_stages}, moving from a general-purpose model to a world model requires exposure to the sequential trajectories of execution beyond instruction tuning. This exposure allows the model to map code edits directly to state changes.
 
-This "world modeling" capability allows the agent to reason about the consequences of its edits across multi-file repositories and system-level interactions. While these models represent the state-of-the-art, they are computationally expensive to train and deploy. This thesis explores a complementary direction: rather than training a massive world model from scratch, we investigate the effectiveness of injecting lightweight, test-derived runtime contexts into the prompt at inference time—providing the "world state" to the model on demand.
+This capability allows the agent to reason about the consequences of its edits across multi-file repositories and system-level interactions. These models are computationally expensive to train and deploy. This thesis explores a complementary direction: we investigate the effectiveness of injecting test-derived runtime contexts into the prompt at inference time, providing the runtime state to the model on demand rather than training it to simulate execution.
