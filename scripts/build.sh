@@ -34,11 +34,6 @@ latexmk -pdflua abstract-cz
 echo "==> Building English abstract..."
 latexmk -pdflua abstract-en
 
-# Copy PDFs to out/
-for pdf in main.pdf abstract-cz.pdf abstract-en.pdf; do
-  [[ -f "$pdf" ]] && cp "$pdf" "$OUT_DIR/$pdf"
-done
-
 echo ""
 echo "Done! PDFs written to out/"
 ls -lh "$OUT_DIR"/*.pdf 2>/dev/null || true
