@@ -53,8 +53,7 @@ Python projects do not use a single testing framework. The three most common run
 
 A \texttt{FrameworkDetector} inspects the project's evaluation script to assign one of four labels: \texttt{pytest}, \texttt{unittest}, \texttt{django}, or \texttt{unknown}. Detection works by scanning the eval script for known substrings: \texttt{"pytest"} or \texttt{"py.test"} indicate pytest, \texttt{"manage.py test"} or \texttt{"runtests.py"} indicate Django, and \texttt{"python -m unittest"} or \texttt{"unittest"} indicate the standard runner. If none of these match, the project is labelled unknown and tracing is skipped.
 
-Detection results are cached by \texttt{instance\_id} so that repeated runs of the same instance do not re-scan the script.
-
+Detection results are cached by \texttt{instance\_id} so that repeated runs of the same instance do not re-scan the script. When applied to all 300 instances of SWE-bench Lite, the framework detector successfully assigned a label to every instance, so that tracing was never skipped.
 
 \section{Hook Injection}
 \label{sec:hook-injection}
@@ -114,7 +113,7 @@ where $\mathit{id}$ is the test node identifier, $\tau$ is the exception type, $
 
 \textbf{step\_frames} ($S$) is built from \texttt{line} events and records $(f, l, n, \rho)$ at every executed source line, in order. It exposes how local variables evolve across individual statements inside a function.
 
-Initially, we collected only entry and exit frames, believing that knowing which functions were called and what state they returned in would be sufficient to analyse runtime behaviour. This proved inadequate in practice. Empirically we observed that models given only entry and exit information struggled to localise bugs that corrupted state midway through a function, and logically this makes sense: entry frames carry no variables at all, and exit frames show only the final state at return. A bug that overwrites a variable partway through a loop or a conditional branch is invisible to both. To give the model a more granular view of what happened inside each function, we added line-level recording. With \texttt{step\_frames}, the LLM can request the execution history of a specific function and see how each local variable evolves statement by statement.
+Initially, we collected only entry and exit frames, believing that knowing which functions were called and the states in which they returned would be sufficient to analyse runtime behaviour. However, this assumption did not hold in practice. Empirically, we observed that models given only entry and exit information struggled to localise bugs that corrupted state midway through a function. Conceptually, this is expected: entry frames contain no variable values, while exit frames expose only the final state at return. A bug that overwrites a variable may therefore remain invisible in both cases. As a motivating example, in our traces, a single invocation of \texttt{\_arithmetic} in instance \texttt{astropy-14995} produced only 3 exit-frame snapshots, but 129 line-level snapshots. The conditional branches responsible for the incorrect behaviour appeared only in the latter. Therefore, we introduced line-level frame collection, which the LLM can query using the \texttt{step\_frames} tool.
 
 The top-level structure of a single entry in \texttt{auto\_debug.json} is shown in Listing~\ref{lst:trace-entry}.
 
