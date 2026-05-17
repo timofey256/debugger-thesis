@@ -27,6 +27,8 @@ Since raw execution traces contain hundreds or thousands of frames, we need to f
 
 The filtering logic examines each frame's filename and skips frames from several categories: special Python files (indicated by angle brackets in the filename, like \texttt{<frozen importlib>}), the standard library (by checking against \texttt{sysconfig.get\_path("stdlib")}), and third-party packages in \texttt{site-packages}. For the call-tracing approach, we also exclude pytest's own internals and the tracing infrastructure itself to prevent circular tracing. This filtering happens in the \texttt{do\_append\_frame} and \texttt{should\_trace\_file} functions, which return \texttt{True} only for application code that's directly relevant to debugging the failure.
 
+\todo{Should we also try some frame ranking techniques like SBFL (Spectrum-Based Fault Localization). This way we could rank frames by their usefullness and potentially extract more information.}
+
 \subsection{Data format and structure}
 
 The collected information is saved in a JSON file, typically named \texttt{auto\_debug.json}. The file contains an array of test results, where each entry represents one test execution. For failed tests, each entry includes four key fields: \texttt{nodeid} (the fully-qualified test identifier like \texttt{module::TestClass::test\_method}), \texttt{exc\_type} (the exception class name such as \texttt{AssertionError}), \texttt{message} (the exception message), and \texttt{frames} (an array of stack frame objects).
