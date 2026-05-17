@@ -4,7 +4,6 @@
 \section{How does runtime information affect LLM-based code generation? (RQ1)}
 \section{What runtime information yields the best performance? (RQ2)}
 \section{Is fine-tuning worth it? (RQ3)}
-\todo{Same concerns as in Intro: I am not confident we can cover this. Is it safe to drop? We can add fault localization techniques as a replacement.}
 \section{Threats to validity}
 
 \paragraph{Training data contamination.}
@@ -18,7 +17,7 @@ The benchmark skews toward open-source, well-tested Python projects with clear i
 
 \paragraph{Prompt sensitivity.}
 LLM performance is sensitive to prompt wording, and different system prompts or tool descriptions might produce different results.
-Our prompts (see \Cref{app:prompts}) were tuned informally, and a more exhaustive prompt search might change the numbers. Potentially, prompt-optimizing frameworks, like \xxx{TODO: add DSPy}, could be used.
+Our prompts (see \Cref{app:prompts}) were tuned informally, and a more exhaustive prompt search might change the numbers. Potentially, prompt-optimizing frameworks such as DSPy \citep{khattab2023dspy} could be used.
 
 \paragraph{Evaluation metric limitations.}
 The binary pass/fail criterion rewards any patch that passes the test suite, including ones that special-case inputs rather than fixing the underlying logic, and does not measure code quality or generalization.

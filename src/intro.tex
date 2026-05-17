@@ -2,22 +2,57 @@
 \chapter{Introduction}
 
 \section{Motivation}
-Programming assistants based on large language models (LLMs) have become widely used for tasks such as code completion, refactoring, and bug fixing. In the context of automated program repair (APR), current LLM-based approaches are usually prompted with a static snapshot of the source code together with a failing unit test and the failure output, and they are expected to propose a patch that makes the test pass \citep{yang2025surveyllmbasedautomatedprogram,zhang2023surveylearningbasedautomatedprogram}.
+Agent-based systems now represent the standard approach to LLM-based
+automated program repair. \citet{yang2024sweagent} introduced SWE-agent,
+which gives the model a custom tool interface for file inspection, code
+search, and test execution. \citet{zhang2024autocoderover} proposed
+AutoCodeRover, which replaces raw file reads with AST-level retrieval and
+spectrum-based fault localization. \citet{xia2024agentless} designed
+Agentless, a fixed pipeline of hierarchical localization, patch sampling,
+and test-based candidate selection. On SWE-bench Lite
+\citep{jimenez2023swebench}, these three systems reached 12.5\%, 19\%,
+and 32\% pass@1, respectively.
 
-A key limitation of this setting is that test failures are caused by a specific runtime behavior: certain functions are executed, particular values flow through variables, and an exception (or wrong output) is produced at a concrete program point. If the model only sees static code, it must infer this runtime state from source alone, which is hard in statically typed languages and harder still in dynamically typed ones such as Python. For example, the model may not know which branch was actually taken, what the true types or shapes of values were, or what arguments were passed to a misbehaving function.
+The repair process these systems follow has no analog in how developers actually debug.
+A developer investigating a test failure reads the call stack, inspects argument values
+at each frame, and checks variable states at the crash point, typically through a
+debugger or execution trace. These systems give the model none of that. They supply
+source code and a test failure message, and the model must reconstruct what the program
+did from text alone. \citet{chen2023teaching} point to this as the core constraint of
+execution-free repair, and \citet{zhong2024debug} show that explicitly providing models
+with control flow and variable state information before patch generation raises
+correctness.
 
-The aim of this thesis is to investigate whether supplying the LLM with program information collected during unit test execution can improve its ability to produce correct fixes for failing tests. The thesis builds on recent work arguing that LLMs benefit from being guided by information about program execution, rather than relying solely on static reasoning over source code \citep{ni2024nextteachinglargelanguage, han2025rethinkingcapabilityfinetunedlanguage}.
+This thesis asks whether supplying runtime information collected during
+test execution improves patch correctness. We instrument Python unit
+tests to collect call stacks, argument values, and exception state, and
+we supply the collected data in the LLM prompt alongside the failing test
+and source code. We evaluate this approach against a static-context
+baseline on real Python bugs and build on prior evidence that
+execution-derived context improves model reasoning on code tasks
+\citep{ni2024nextteachinglargelanguage,han2025rethinkingcapabilityfinetunedlanguage}.
 
 \section{Our contributions}
-This thesis makes the following contributions:
+We present a system for runtime-augmented LLM-based program repair.
+The specific contributions are:
 \begin{enumerate}
-  \item \textbf{Runtime context collection for tests.} We implement an instrumentation pipeline for Python unit tests that collects execution-derived information such as executed methods/functions and observed argument values (in a bounded, serializable form).
-  \item \textbf{Runtime-augmented prompting for repair.} We design prompting templates that incorporate the collected runtime context when asking an LLM to fix a failing unit test, and we integrate patch validation by re-running tests.
-  \item \textbf{Experimental evaluation.} We evaluate the proposed system against a baseline that uses no runtime information, and we analyze the impact of different kinds and amounts of runtime context.
+  \item \textbf{Execution tracer for failing unit tests.} We instrument Python test suites via
+    \texttt{sys.settrace} to collect, per failing test, the call stack, executed function names,
+    and argument values at function entry. We bound collection depth and serialize records into
+    structured form.
+  \item \textbf{Multi-turn tool interface for repair.} We design a session in which the LLM
+    accesses runtime data through tool calls: file reading, call-graph queries, argument
+    inspection, and test execution. The model selects which data to retrieve and when.
+  \item \textbf{Comparative and ablative experiments.} On SWE-bench Lite and BugsInPy, we
+    measure patch correctness for a no-context baseline, static trace injection, and the
+    interactive interface. Ablations over trace subsets quantify how much each category of
+    runtime information contributes to repair success.
 \end{enumerate}
 
+\change{When I am going to finally add finetuning, it should be mentioned here.}
+
 \section{Thesis structure}
-This thesis is guided by the following research questions:
+This thesis attempts to address the following research questions:
 
 \begin{tcolorbox}[colback=blue!6!white,colframe=blue!60!black,boxrule=0.6pt,arc=2pt,left=6pt,right=6pt,top=4pt,bottom=4pt]
 \textbf{RQ1:} Can execution traces improve LLM-based bug repairing compared to static analysis alone?
@@ -31,6 +66,5 @@ This thesis is guided by the following research questions:
 \textbf{RQ3:} Does fine-tuning on debugging-specific data outperform prompting general-purpose models? 
 \end{tcolorbox}
 
-\todo{Seems like fine tuning is going to be hard to cover. I have no setup for it + it's still not clear how to train this and evaluate. Perhaps, drop finetuning and focus more on frame ranking and other parts?}
-
 \Cref{ch:related-work} reviews related work on learning-based program repair, LLM-based test repair, and execution-aware approaches. \Cref{ch:system-methodology} presents our approach, including runtime information collection, filtering, serialization, and the LLM tool-based interface. The evaluation chapter describes the experimental setup, datasets, metrics, and results, including ablations over runtime context. \Cref{ch:discussion} discusses limitations and threats to validity. \Cref{ch:conclusion} summarizes the findings and outlines future work.
+\change{TODO: validate this paragraph when we finish later chapters}
