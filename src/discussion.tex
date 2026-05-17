@@ -4,5 +4,22 @@
 \section{How does runtime information affect LLM-based code generation? (RQ1)}
 \section{What runtime information yields the best performance? (RQ2)}
 \section{Is fine-tuning worth it? (RQ3)}
+\todo{Same concerns as in Intro: I am not confident we can cover this. Is it safe to drop? We can add fault localization techniques as a replacement.}
 \section{Threats to validity}
-TODO: models are already potentially trained on our data, including chosen repositories. 
+
+\paragraph{Training data contamination.}
+Large language models are trained on data scraped from the internet, which almost certainly includes the GitHub repositories used in SWE-bench Lite along with their associated issues and pull requests.
+A model may have seen the exact bug fix during training, making the solution a form of memorization rather than real performance.
+\citep{xia2024agentless} make the same observation. However, since this threat applies equally to both of our variants (\texttt{with\_runtime}, \texttt{without\_runtime}), the relative comparison is less affected than absolute numbers.
+
+\paragraph{Benchmark representativeness.}
+SWE-bench Lite covers 11 Python repositories, and results may not generalize to other languages, or bug types absent from the benchmark.
+The benchmark skews toward open-source, well-tested Python projects with clear issue descriptions, which may not reflect typical software maintenance tasks. An especially important assumption is availability of tests, and informativeness of runtime information.
+
+\paragraph{Prompt sensitivity.}
+LLM performance is sensitive to prompt wording, and different system prompts or tool descriptions might produce different results.
+Our prompts (see \Cref{app:prompts}) were tuned informally, and a more exhaustive prompt search might change the numbers. Potentially, prompt-optimizing frameworks, like \xxx{TODO: add DSPy}, could be used.
+
+\paragraph{Evaluation metric limitations.}
+The binary pass/fail criterion rewards any patch that passes the test suite, including ones that special-case inputs rather than fixing the underlying logic, and does not measure code quality or generalization.
+Localization accuracy measures overlap with the gold patch, but a correct fix at a different code location would be penalized despite being valid.
