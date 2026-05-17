@@ -30,9 +30,11 @@ We evaluate both variants across the following base models:
 
 \begin{itemize}\setlength{\itemsep}{6pt}
   \item \textbf{DeepSeek}: \texttt{deepseek-chat}, \texttt{deepseek-v4-flash}, \texttt{deepseek-v4-pro}
-  \item \textbf{OpenAI}: \texttt{gpt-4o}, \texttt{o1} % TODO: confirm exact model IDs
+  \item \textbf{OpenAI}: \texttt{\xxx{gpt-4o}}, \texttt{\xxx{o1}} 
   \item \textbf{Open-source}: \texttt{[TODO: qwen, llama?]}
 \end{itemize}
+
+\todo{We are going to limit the scope of models. No reason to test across models of comparable performance. But we need to add small models too, so then we can compare the added value of runtime info in big vs. small models}
 
 All models are accessed via OpenAI-compatible APIs. The default number of tool runs in session runs is 10.
 
