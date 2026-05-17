@@ -210,7 +210,7 @@ A project instance may have multiple failing tests, each producing its own entry
 
 In the first iteration of our experiments we tried to put the collected runtime information into a single prompt pass it to the model in one shot. The prompt was assembled from four XML-tagged sections: \texttt{<intro>} with a task description, \texttt{<exception>} with the exception type and message, \texttt{<runtime\_trace>} with the serialized frames, and \texttt{<instructions>} with output format requirements. For each frame in the trace, the prompt builder opened the corresponding source file on the host filesystem and included ten lines of context around the frame's line number.
 
-However, this approach had two problems. First, the prompt is rigid: once generated, the model cannot retrieve additional context by interacting with the environment or inspecting parts of the codebase that were not included in the prompt. Second, the opposite issue also posed a challenge: runtime frames constitute a large portion of the prompt, and dumping all information into a single prompt may pollute the context.
+However, this approach had two problems. First, the prompt is rigid: once generated, the model cannot retrieve additional context by interacting with the environment or inspecting parts of the codebase that were not included in the prompt. Second, the opposite issue also posed a challenge: runtime frames constitute a large portion of the prompt, and dumping all information into a single prompt may pollute the context. These issues ultimately led to poor performance.
 
 \subsection{Tool-based approach}
 \label{subsec:tool-based}
