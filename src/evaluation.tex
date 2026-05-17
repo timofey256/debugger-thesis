@@ -34,7 +34,9 @@ We evaluate both variants across the following base models:
   \item \textbf{Open-source}: \texttt{[TODO: qwen, llama?]}
 \end{itemize}
 
-All models are accessed via OpenAI-compatible APIs. The session runs for at most 10 tool turns. Cost is calculated from token counts reported by the API at input and output token prices published by each provider.
+All models are accessed via OpenAI-compatible APIs. The default number of tool runs in session runs is 10.
+
+We run a single LLM session per instance per variant. We do not ensemble or run multiple trials. We set temperature to 0 where the API allows it to make runs deterministic, though not all providers guarantee identical outputs at temperature 0. We report results on the full 300-instance set unless otherwise noted.
 
 \section{Evaluation Metrics}
 \label{sec:eval-metrics}
@@ -53,11 +55,12 @@ This matches the standard SWE-bench \% resolved metric and allows direct compari
 \]
 where $\mathrm{loc}_g(i, \mathcal{M}, v) = 1$ if the model's patch touches at least one of the correct files (resp. functions, lines) identified in the gold patch. File-level localization is the weakest criterion and line-level the strictest.
 
-\paragraph{Cost.} For each instance we record the total input and output token counts $n_{\mathrm{in}}$, $n_{\mathrm{out}}$ and compute cost in USD using the provider's published per-token rates $p_{\mathrm{in}}$, $p_{\mathrm{out}}$:
+\paragraph{Token count.} We report the mean input and output token counts per instance:
 \[
-  c(i, \mathcal{M}) \;=\; n_{\mathrm{in}} \cdot p_{\mathrm{in}} \;+\; n_{\mathrm{out}} \cdot p_{\mathrm{out}}
+  T_{\mathrm{in}}(\mathcal{M}, v) \;=\; \frac{1}{|\mathcal{I}|}\sum_i n_{\mathrm{in}}(i, \mathcal{M}, v), \qquad
+  T_{\mathrm{out}}(\mathcal{M}, v) \;=\; \frac{1}{|\mathcal{I}|}\sum_i n_{\mathrm{out}}(i, \mathcal{M}, v)
 \]
-We report the mean cost $\bar{c}(\mathcal{M}, v) = \frac{1}{|\mathcal{I}|}\sum_i c(i, \mathcal{M})$ and total token counts per variant.
+Token counts are a model-independent efficiency signal. Unlike cost, they do not depend on per-provider pricing, so they remain comparable across providers and over time as prices change. Comparing $T_{\mathrm{in}}$ across variants reveals how much context the runtime tools add to the prompt. Comparing $T_{\mathrm{out}}$ shows whether the model produces longer or shorter responses when runtime data is available.
 
 \section{Runtime Information Impact (RQ1)}
 % Main results table: with vs without runtime tools, across models and both benchmarks
@@ -70,8 +73,8 @@ We report the mean cost $\bar{c}(\mathcal{M}, v) = \frac{1}{|\mathcal{I}|}\sum_i
 % File-level, function-level, line-level accuracy against gold patch
 % Correlation between localisation accuracy and resolved rate
 
-\section{Cost and Efficiency}
-% Avg tokens and cost per instance across configurations
+\section{Token Usage and Efficiency}
+% Avg tokens per instance across configurations
 % Tool call distribution: which tools are called most often
 
 \section{Results on BugsInPy}

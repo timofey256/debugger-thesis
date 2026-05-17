@@ -205,19 +205,19 @@ The truncation bound $\tau_{1000}$ applies after either choice. Long lists, larg
 
 A project instance may have multiple failing tests, each producing its own entry in \texttt{auto\_debug.json}. For the LLM session we select a single representative trace. The current heuristic selects the first entry in the list. This is a deliberate simplification: more sophisticated strategies such as selecting the trace with the deepest frame stack, the most distinct exception type, or the most variable-rich locals were considered but not implemented. The first-trace heuristic is deterministic and easy to reason about, which is important for reproducibility.
 
-\subsection{Initial static prompt approach}
+\subsection{Static prompt approach}
 \label{subsec:static-prompt}
 
-The first iteration of LLM integration built a single prompt from the collected trace data and passed it to the model in one shot. The prompt was assembled from four XML-tagged sections: \texttt{<intro>} with a task description, \texttt{<exception>} with the exception type and message, \texttt{<runtime\_trace>} with the serialized frames, and \texttt{<instructions>} with output format requirements. For each frame in the trace, the prompt builder opened the corresponding source file on the host filesystem and included ten lines of context around the frame's line number.
+In the first iteration of our experiments we tried to put the collected runtime information into a single prompt pass it to the model in one shot. The prompt was assembled from four XML-tagged sections: \texttt{<intro>} with a task description, \texttt{<exception>} with the exception type and message, \texttt{<runtime\_trace>} with the serialized frames, and \texttt{<instructions>} with output format requirements. For each frame in the trace, the prompt builder opened the corresponding source file on the host filesystem and included ten lines of context around the frame's line number.
 
-This approach has three problems. First, it requires access to the project's source files on the host at prompt-generation time, which is unavailable in the containerized evaluation environment used for SWE-bench instances. Second, the prompt is fixed: once generated, the model cannot ask follow-up questions or inspect parts of the code that the prompt did not include. Third, the ten-line context windows around each frame are included regardless of relevance, which can fill the context window with code the model does not need.
+However, this approach had two problems. First, the prompt is rigid: once generated, the model cannot retrieve additional context by interacting with the environment or inspecting parts of the codebase that were not included in the prompt. Second, the opposite issue also posed a challenge: runtime frames constitute a large portion of the prompt, and dumping all information into a single prompt may pollute the context.
 
 \subsection{Tool-based approach}
 \label{subsec:tool-based}
 
 We replaced the static prompt with an interactive tool session. The model receives a short initial prompt describing the failing test and is given access to a set of tools it can call iteratively before submitting a patch. This mirrors how a human developer investigates a bug: they look at the error, navigate to the relevant code, inspect variable states, search for symbol definitions, and only then write a fix.
 
-The session runs for at most \texttt{max\_tool\_turns} turns (default 10). On each turn the model issues one or more tool calls. The system executes each call, returns the result, and appends both to the message history. When the model calls \texttt{apply\_patch}, the session ends immediately and the patch is extracted from the tool argument. When the model calls \texttt{get\_frames} or \texttt{get\_granular\_frames}, each frame in the response includes surrounding source lines rendered from the pre-loaded source map alongside the local variable snapshot, so the model gets code context on demand rather than all at once.
+The session runs for at most \texttt{max\_tool\_turns} turns (default 10). On each turn the model issues one or more tool calls. The system executes each call, returns the result, and appends both to the message history. When the model calls \texttt{apply\_patch}, the session ends immediately and the patch is extracted from the tool argument. When the model calls \texttt{get\_frames} or \texttt{get\_granular\_frames}, each frame in the response includes surrounding source lines rendered from the pre-loaded source map alongside the local variable snapshot, so the model gets code context on demand rather than all at once. The full prompts used to initialize the session are listed in \Cref{app:prompts}.
 
 \subsection{Available tools}
 \label{subsec:tools}
