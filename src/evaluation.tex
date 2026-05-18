@@ -22,15 +22,15 @@ Each instance corresponds to a GitHub issue with a failing test that was introdu
 Each instance runs inside an isolated Docker container managed by \texttt{TracedInstanceRunner}, as described in \Cref{ch:system-methodology}. We run each instance under two \emph{variants}:
 
 \begin{itemize}\setlength{\itemsep}{6pt}
-  \item \textbf{without\_runtime}: the LLM session uses only the four static tools (\texttt{print\_project\_tree}, \texttt{open\_file}, \texttt{search\_symbol}, \texttt{apply\_patch}). No tracing is performed. This serves as the baseline.
-  \item \textbf{with\_runtime}: the full nine-tool catalog is available, including the runtime tools (\texttt{get\_test\_error}, \texttt{get\_execution\_trace}, \texttt{get\_frames}, \texttt{get\_granular\_frames}). The tracer runs before the LLM session and populates \texttt{auto\_debug.json}.
+    \item \textbf{without\_runtime}: the LLM session uses only the five static tools (\texttt{print\_project\_tree}, \texttt{open\_file}, \texttt{search\_symbol}, \texttt{get\_test\_error}, \texttt{apply\_patch}). This serves as the baseline.
+    \item \textbf{with\_runtime}: the full nine-tool catalog is available, including the runtime tools (\texttt{get\_execution\_trace}, \texttt{get\_frames}, \texttt{get\_granular\_frames}). The tracer runs before the LLM session and populates \texttt{auto\_debug.json}.
 \end{itemize}
 
 We evaluate both variants across the following base models:
 
 \begin{itemize}\setlength{\itemsep}{6pt}
-  \item \textbf{Frontier models}: \texttt{DeepSeek-V4-Pro}, \texttt{gpt-5.4}, \texttt{claude-sonnet-4.6}
-  \item \textbf{Small open-source models}: \texttt{Qwen2.5-Coder-7B-Instruct}
+    \item Frontier models: \texttt{DeepSeek-V4-Pro}, \texttt{gpt-5.4}, \texttt{claude-sonnet-4.6}
+    \item Small open-source models: \texttt{Qwen2.5-Coder-7B-Instruct}
 \end{itemize}
 
 We deliberately evaluate on both large frontier models and small open-source models. This allows us to assess whether the benefit of runtime information depends on model scale. Our hypothesis is that runtime data yields a larger relative improvement for smaller models, as there is greater room to compensate for their lack of world knowledge.
@@ -66,17 +66,9 @@ Token counts are a model-independent efficiency signal. Unlike cost, they do not
 \section{Runtime Information Impact (RQ1)}
 % Main results table: with vs without runtime tools, across models and both benchmarks
 
-\section{Runtime Data Structure Ablation (RQ2)}
+\section{Ablation Studies (RQ2)}
 % exec_path only vs frames only vs step_frames vs all combinations
 % Which structures contribute most to resolved rate
-
-\section{Localization Analysis}
-% File-level, function-level, line-level accuracy against gold patch
-% Correlation between localisation accuracy and resolved rate
-
-\section{Token Usage and Efficiency}
-% Avg tokens per instance across configurations
-% Tool call distribution: which tools are called most often
 
 \section{Results on BugsInPy}
 % Generalisability beyond SWE-Bench Lite
