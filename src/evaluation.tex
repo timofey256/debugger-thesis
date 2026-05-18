@@ -29,12 +29,11 @@ Each instance runs inside an isolated Docker container managed by \texttt{Traced
 We evaluate both variants across the following base models:
 
 \begin{itemize}\setlength{\itemsep}{6pt}
-  \item \textbf{DeepSeek}: \texttt{deepseek-chat}, \texttt{deepseek-v4-flash}, \texttt{deepseek-v4-pro}
-  \item \textbf{OpenAI}: \texttt{\xxx{gpt-4o}}, \texttt{\xxx{o1}} 
-  \item \textbf{Open-source}: \texttt{[TODO: qwen, llama?]}
+  \item \textbf{Frontier models}: \texttt{DeepSeek-V4-Pro}, \texttt{gpt-5.4}, \texttt{claude-sonnet-4.6}
+  \item \textbf{Small open-source models}: \texttt{Qwen2.5-Coder-7B-Instruct}
 \end{itemize}
 
-\change{We are going to limit the scope of models. No reason to test across models of comparable performance. But we need to add small models too, so then we can compare the added value of runtime info in big vs. small models}
+We deliberately evaluate on both large frontier models and small open-source models. This allows us to assess whether the benefit of runtime information depends on model scale. Our hypothesis is that runtime data yields a larger relative improvement for smaller models, as there is greater room to compensate for their lack of world knowledge.
 
 All models are accessed via OpenAI-compatible APIs. The default number of tool runs in session runs is 10.
 

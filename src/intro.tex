@@ -47,9 +47,8 @@ The specific contributions are:
     measure patch correctness for a no-context baseline, static trace injection, and the
     interactive interface. Ablations over trace subsets quantify how much each category of
     runtime information contributes to repair success.
+  \item \textbf{Fine-tuning on runtime-augmented data.} We fine-tune Qwen2.5-Coder-7B-Instruct on approximately 300 training examples constructed from the benchmark traces, pairing each initial issue prompt and its runtime trace with the gold reference patch. We train with QLoRA on a single A100 GPU across five seeds and evaluate whether fine-tuning on task-specific runtime data further improves repair over prompting alone.
 \end{enumerate}
-
-\change{When I am going to finally add finetuning, it should be mentioned here.}
 
 \section{Thesis structure}
 This thesis attempts to address the following research questions:

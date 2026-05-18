@@ -245,3 +245,51 @@ Table~\ref{tab:tools} lists all nine tools. They are grouped into two catalogs. 
 \end{table}
 
 The \texttt{apply\_patch} tool acts as the session terminator. Once the model calls it with a valid unified diff, the runner extracts the patch and stops processing further turns. If the model exhausts all turns without calling \texttt{apply\_patch}, the system attempts to extract a diff from the final assistant message as a fallback. If no patch can be found, the session returns an empty string and the instance is counted as a failure.
+
+
+\section{Fine-Tuning Setup}
+\label{sec:finetuning}
+
+We fine-tune Qwen2.5-Coder-7B-Instruct \citep{hui2024qwen25coder}, a 7-billion parameter model pre-trained on 5.5 trillion code tokens and instruction-tuned with a ChatML format. The model represents a capable but accessible small model, making it a meaningful contrast against the frontier models in the evaluation.
+
+\subsection{Training Data}
+
+The training data reuses the traces collected during the benchmark runs described above. Each training example is a triple: the initial issue prompt supplied to the model during evaluation, the runtime trace collected for that instance, and the gold reference patch from the benchmark as the target output. This gives approximately 300 training samples drawn from the SWE-bench Lite instances \citep{jimenez2023swebench}. We format each example in the ChatML instruction format: a system message defining the task, a user message containing the issue prompt and runtime trace, and an assistant message containing the gold patch in unified diff format.
+
+Three hundred samples is a small dataset. Prior work on QLoRA \citep{dettmers2023qlora} shows that a strong base model prior can generalize on narrow, well-defined tasks from a few hundred training examples. The limited dataset size is also a deliberate scope decision given the narrow task distribution of SWE-bench Lite, which comprises 300 Python GitHub issues. We treat this constraint as a limitation and quantify its effect by reporting variance across multiple training seeds.
+
+\subsection{Training Procedure}
+
+We train with QLoRA \citep{dettmers2023qlora}: the base model is loaded in 4-bit NF4 quantization with double quantization enabled and bfloat16 as the compute dtype, matching A100 native precision support. Low-rank adapters are injected into all seven linear projection layers: the four attention projections (\texttt{q\_proj}, \texttt{k\_proj}, \texttt{v\_proj}, \texttt{o\_proj}) and the three MLP projections (\texttt{gate\_proj}, \texttt{up\_proj}, \texttt{down\_proj}). We train on a single A100 PCIe GPU with 80\,GB memory.
+
+\subsection{Hyperparameters}
+
+Table~\ref{tab:qlora-hparams} lists the hyperparameters used across all training runs.
+
+\begin{table}[ht]
+\centering
+\caption{QLoRA fine-tuning hyperparameters.}
+\label{tab:qlora-hparams}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Hyperparameter} & \textbf{Value} \\
+\midrule
+LoRA rank $r$           & 16 \\
+LoRA $\alpha$           & 32 \\
+LoRA dropout            & 0.05 \\
+Learning rate           & $2 \times 10^{-4}$ \\
+LR scheduler            & cosine with warmup \\
+Warmup ratio            & 0.04 \\
+Effective batch size    & 64 (per-device 8, gradient accumulation 8) \\
+Max sequence length     & 4096 \\
+Epochs                  & 5 \\
+Optimizer               & AdamW (fused) \\
+Weight decay            & 0.05 \\
+Gradient clipping       & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Training Seeds}
+
+We train on five random seeds and report the mean and standard deviation across seeds. The multiple seeds account for fine-tuning variance on small datasets, where a single run may be sensitive to weight initialization and data ordering.
