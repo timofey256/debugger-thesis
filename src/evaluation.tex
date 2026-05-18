@@ -4,7 +4,7 @@
 \section{Experimental Setup}
 \label{sec:eval-setup}
 
-We evaluate on SWE-bench Lite~\citep{jimenez2023swebench}, a curated subset of 300 instances drawn from 11 open-source Python repositories:
+Our primary evaluation dataset is SWE-bench Lite~\citep{jimenez2023swebench}: a collection of 300 real-world bugs and their fixed, collected from 11 open-source Python repositories on GitHub:
 
 \begin{center}
 \begin{tabular}{ll}
@@ -17,13 +17,13 @@ We evaluate on SWE-bench Lite~\citep{jimenez2023swebench}, a curated subset of 3
 \end{tabular}
 \end{center}
 
-Each instance corresponds to a GitHub issue with a failing test that was introduced by a real commit. The benchmark defines a binary resolution criterion: an instance is \emph{resolved} if the submitted patch causes all originally failing tests to pass without breaking any previously passing tests.
+Each data sample corresponds to \xxx{TODO define data format}. The ground truth is a reference patch and a data sample is considered resolved, if the produced patch makes tests pass without breaking any previously passing tests.
 
-Each instance runs inside an isolated Docker container managed by \texttt{TracedInstanceRunner}, as described in \Cref{ch:system-methodology}. We run each instance under two \emph{variants}:
+Each instance runs inside an isolated Docker container managed by \texttt{TracedInstanceRunner}, as described in \Cref{ch:system-methodology}. We run each instance under two variants (modes):
 
 \begin{itemize}\setlength{\itemsep}{6pt}
-    \item \textbf{without\_runtime}: the LLM session uses only the five static tools (\texttt{print\_project\_tree}, \texttt{open\_file}, \texttt{search\_symbol}, \texttt{get\_test\_error}, \texttt{apply\_patch}). This serves as the baseline.
-    \item \textbf{with\_runtime}: the full nine-tool catalog is available, including the runtime tools (\texttt{get\_execution\_trace}, \texttt{get\_frames}, \texttt{get\_granular\_frames}). The tracer runs before the LLM session and populates \texttt{auto\_debug.json}.
+    \item \texttt{without\_runtime}: the model is allowed to only use static context via static tools (\texttt{print\_project\_tree}, \texttt{open\_file}, \texttt{search\_symbol}, \texttt{get\_test\_error}, \texttt{apply\_patch}). This serves as the baseline.
+    \item \texttt{with\_runtime}: the model is allowed to use all the available tools, including the runtime tools (\texttt{get\_execution\_trace}, \texttt{get\_frames}, \texttt{get\_granular\_frames}).
 \end{itemize}
 
 We evaluate both variants across the following base models:
@@ -37,7 +37,7 @@ We deliberately evaluate on both large frontier models and small open-source mod
 
 All models are accessed via OpenAI-compatible APIs. The default number of tool runs in session runs is 10.
 
-We run a single LLM session per instance per variant. We do not ensemble or run multiple trials. We set temperature to 0 where the API allows it to make runs deterministic, though not all providers guarantee identical outputs at temperature 0. We report results on the full 300-instance set unless otherwise noted.
+We run a single LLM session per instance per variant (mode). We do not ensemble or run multiple trials. We set temperature to 0 where the API allows it to make runs deterministic, though not all providers guarantee identical outputs at temperature 0. We report results on all 300 dataset samples unless otherwise noted.
 
 \section{Evaluation Metrics}
 \label{sec:eval-metrics}
@@ -61,14 +61,14 @@ where $\mathrm{loc}_g(i, \mathcal{M}, v) = 1$ if the model's patch touches at le
   T_{\mathrm{in}}(\mathcal{M}, v) \;=\; \frac{1}{|\mathcal{I}|}\sum_i n_{\mathrm{in}}(i, \mathcal{M}, v), \qquad
   T_{\mathrm{out}}(\mathcal{M}, v) \;=\; \frac{1}{|\mathcal{I}|}\sum_i n_{\mathrm{out}}(i, \mathcal{M}, v)
 \]
-Token counts are a model-independent efficiency signal. Unlike cost, they do not depend on per-provider pricing, so they remain comparable across providers and over time as prices change. Comparing $T_{\mathrm{in}}$ across variants reveals how much context the runtime tools add to the prompt. Comparing $T_{\mathrm{out}}$ shows whether the model produces longer or shorter responses when runtime data is available.
+We decided to include token counts as an efficiency signal, so we can compare the usage across different models. Comparing $T_{\mathrm{in}}$ across variants reveals how much context the runtime tools add to the prompt. Comparing $T_{\mathrm{out}}$ shows whether the model produces longer or shorter responses when runtime data is available.
 
 \section{Runtime Information Impact (RQ1)}
 \label{sec:rq1}
 
 \begin{table}[t]
 \centering
-\caption{Repair performance on SWE-bench Lite. \xxx{Full results pending.}}
+\caption{Repair performance on SWE-bench Lite. \xxx{TODO: NOT FINAL}}
 \label{tab:main-results-perf}
 {\small
 \begin{tabular}{llrrrr}
@@ -76,33 +76,30 @@ Token counts are a model-independent efficiency signal. Unlike cost, they do not
 Model & Var. & Res.\% & File\% & Func\% & Line\% \\
 \midrule
 \multirow{2}{*}{\raisebox{-0.1\height}{\includegraphics[height=1.6ex]{img/openai}}\;\texttt{gpt-5.4-mini}}
-  & w/o RT & \textbf{0.0} & \textbf{100.0} & \textbf{50.0} & \textbf{75.0} \\
-  & w/ RT  & \textbf{0.0} &          75.0  & \textbf{50.0} & \textbf{75.0} \\
+  & w/o runtime & \xxx{TBD} & 90.0 & 40.0 & 40.0 \\
+    & w/ runtime & \textbf{\xxx{TBD}} &          \textbf{100.0}  & \textbf{50.0} & \textbf{50.0} \\
 \midrule
 \multirow{2}{*}{\raisebox{-0.1\height}{\includegraphics[height=1.6ex]{img/deepseek}}\;\texttt{DeepSeek-V4-Pro}}
-  & w/o RT &          24.0  &          68.0  &          51.0  &          38.0  \\
-  & w/ RT  & \textbf{30.0} & \textbf{73.0} & \textbf{57.0} & \textbf{44.0} \\
+  & w/o runtime &          \xxx{TBD}  &          \xxx{TBD}  &          \xxx{TBD}  &          \xxx{TBD}  \\
+  & w/ runtime  & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
 \midrule
 \multirow{2}{*}{\raisebox{-0.1\height}{\includegraphics[height=1.6ex]{img/claude}}\;\texttt{claude-sonnet-4.6}}
-  & w/o RT &          31.0  &          74.0  &          58.0  &          45.0  \\
-  & w/ RT  & \textbf{36.0} & \textbf{79.0} & \textbf{63.0} & \textbf{50.0} \\
+  & w/o runtime &          \xxx{TBD}  &          \xxx{TBD}  &          \xxx{TBD}  &          \xxx{TBD}  \\
+  & w/ runtime  & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
 \midrule
 \multirow{3}{*}{\raisebox{-0.1\height}{\includegraphics[height=2.0ex]{img/qwen}}\;\texttt{Qwen2.5-Coder-7B}}
-  & w/o RT    &          8.0   &          45.0  &          31.0  &          22.0  \\
-  & w/ RT     & \textbf{14.0} & \textbf{52.0} & \textbf{38.0} & \textbf{29.0} \\
-  & finetuned &          8.0   &          45.0  &          31.0  &          22.0  \\
+  & w/o runtime    &          \xxx{TBD}   &          \xxx{TBD}  &          \xxx{TBD}  &          \xxx{TBD}  \\
+    & w/ runtime     & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+  & finetuned &          \xxx{TBD}   &          \xxx{TBD}  &          \xxx{TBD}  &          \xxx{TBD}  \\
 \bottomrule
 \end{tabular}
 }
 \vspace{4pt}
-\begin{minipage}{\linewidth}
-  \footnotesize \quad w/o RT = without\_runtime; w/ RT = with\_runtime; finetuned = fine-tuned variant.
-\end{minipage}
 \end{table}
 
 \begin{table}[t]
 \centering
-\caption{Average token counts per instance on SWE-bench Lite. \xxx{Full results pending.}}
+\caption{Average token counts per instance on SWE-bench Lite. \xxx{TODO: THATS NOT FINAL RESULTS.}}
 \label{tab:token-usage}
 {\small
 \begin{tabular}{llrr}
@@ -110,44 +107,43 @@ Model & Var. & Res.\% & File\% & Func\% & Line\% \\
 Model & Var. & $T_\text{in}$ & $T_\text{out}$ \\
 \midrule
 \multirow{2}{*}{\raisebox{-0.1\height}{\includegraphics[height=1.6ex]{img/openai}}\;\texttt{gpt-5.4-mini}}
-  & w/o RT &          71{,}969  &          599  \\
-  & w/ RT  & \textbf{46{,}187} & \textbf{528} \\
+  & w/o runtime &          71{,}969  &          599  \\
+  & w/ runtime  & \textbf{46{,}187} & \textbf{528} \\
 \midrule
 \multirow{2}{*}{\raisebox{-0.1\height}{\includegraphics[height=1.6ex]{img/deepseek}}\;\texttt{DeepSeek-V4-Pro}}
-  & w/o RT & \textbf{62{,}105} & \textbf{589} \\
-  & w/ RT  &          83{,}671  &          654  \\
+  & w/o runtime & \textbf{62{,}105} & \textbf{589} \\
+  & w/ runtime  &          83{,}671  &          654  \\
 \midrule
 \multirow{2}{*}{\raisebox{-0.1\height}{\includegraphics[height=1.6ex]{img/claude}}\;\texttt{claude-sonnet-4.6}}
-  & w/o RT & \textbf{71{,}234} & \textbf{623} \\
-  & w/ RT  &          92{,}341  &          698  \\
+  & w/o runtime & \textbf{71{,}234} & \textbf{623} \\
+  & w/ runtime  &          92{,}341  &          698  \\
 \midrule
 \multirow{3}{*}{\raisebox{-0.1\height}{\includegraphics[height=2.0ex]{img/qwen}}\;\texttt{Qwen2.5-Coder-7B}}
-  & w/o RT    & \textbf{38{,}456} & \textbf{412} \\
-  & w/ RT     &          54{,}123  &          467  \\
+  & w/o runtime    & \textbf{38{,}456} & \textbf{412} \\
+  & w/ runtime     &          54{,}123  &          467  \\
   & finetuned & \textbf{38{,}456} & \textbf{412} \\
 \bottomrule
 \end{tabular}
 }
 \vspace{4pt}
-\begin{minipage}{\linewidth}
-  \footnotesize \quad w/o RT = without\_runtime; w/ RT = with\_runtime; finetuned = fine-tuned variant.
-\end{minipage}
 \end{table}
 
-Table~\ref{tab:main-results-perf} reports the resolved rate and localization accuracy at file, function, and line granularity for each model under both variants. Table~\ref{tab:token-usage} reports the mean input and output token counts per instance, which measure prompt efficiency independent of provider pricing.
+Table~\ref{tab:main-results-perf} shows the resolved rate and localization accuracy at file, function, and line granularity for each model under both variants. Table~\ref{tab:token-usage} reports the mean input and output token counts per instance.
+
+\xxx{TODO add brief discussion of results when we run the benchmarks (data above is placeholder)}
 
 \unsure{Preliminary results on small dataset}
 
 \section{Comparison with Published Systems}
 \label{sec:sota-comparison}
 
-Table~\ref{tab:sota} places our system alongside three published baselines on SWE-bench Lite. All published numbers come from the respective papers. Our results use the with\_runtime variant, since that is the configuration that adds runtime context beyond what a static agent provides. Direct numerical comparison is pending full evaluation runs.
+In Table~\ref{tab:sota} we tried to compare our system to three published results on SWE-bench Lite. The resolved accuracy is taken directly from the research papers. Our results use the with\_runtime variant, since that is the configuration that adds runtime context beyond what a static agent provides.
 
-A direct comparison requires care. The published systems use different base models, tool budgets, and agent scaffolding than ours. SWE-agent and AutoCodeRover were evaluated with earlier models. Agentless uses a multi-stage pipeline with patch ranking that our single-session design does not replicate. Our system augments the agent interaction with runtime execution data rather than replacing the agent paradigm, so any improvement over the static baseline within our own results is the primary signal of interest. The comparison with published systems contextualizes our absolute numbers rather than measuring a controlled difference.
+\xxx{REWRITE} A direct comparison requires care. The published systems use different base models, tool budgets, and agent scaffolding than ours. SWE-agent and AutoCodeRover were evaluated with earlier models. Agentless uses a multi-stage pipeline with patch ranking that our single-session design does not replicate. Our system augments the agent interaction with runtime execution data rather than replacing the agent paradigm, so any improvement over the static baseline within our own results is the primary signal of interest. The comparison with published systems contextualizes our absolute numbers rather than measuring a controlled difference.
 
 \begin{table}[t]
 \centering
-\caption{Resolved rate on SWE-bench Lite for published systems and our system (\xxx{best model, full results pending}).}
+\caption{Comparison of resolved rate on SWE-bench Lite between our system and other published work.}
 \label{tab:sota}
 {\small
 \begin{tabular}{llp{4.5cm}}
@@ -171,33 +167,31 @@ SWE-agent~\citep{yang2024sweagent}            & 12.5       & Interactive shell i
 \section{Ablation Studies (RQ2)}
 \label{sec:eval-rq2}
 
-RQ2 asks which runtime data structures drive the improvement. The full runtime tool set exposes three data structures: the execution path (\texttt{exec\_path}), the return-event frame snapshots (\texttt{frames}), and the line-level step frames (\texttt{step\_frames}). We ablate these by restricting the tool catalog to each structure in isolation and measuring the effect on resolved rate and localization.
+To address RQ2, we perform a series of ablation tests on different subsets of available runtime information.
+We do this by allowing access only to some of runtime tools (execution path \texttt{exec\_path},
+return-event frame snapshots \texttt{frames}, line-level step frames \texttt{step\_frames}).
 
 \begin{table}[h]
 \centering
-\caption{Ablation of runtime data structures on SWE-bench Lite (\texttt{gpt-5.4-mini}). All values are dummy placeholders pending full evaluation.}
+\caption{Ablation of runtime data structures on SWE-bench Lite (\texttt{gpt-5.4-mini}). \xxx{TODO fill in after benchmarks}}
 \label{tab:ablation}
-{\small
 \begin{tabular}{lcccc}
 \toprule
 Configuration & Resolved\% & File\% & Func\% & Line\% \\
 \midrule
-\texttt{no\_runtime} (baseline)                               & 28.0 & 72.0 & 55.0 & 42.0 \\
-\texttt{exec\_path} only                                      & 29.0 & 73.0 & 56.0 & 43.0 \\
-\texttt{frames} only                                          & 30.0 & 74.0 & 57.0 & 44.0 \\
-\texttt{step\_frames} only                                    & 31.0 & 75.0 & 58.0 & 45.0 \\
-\texttt{exec\_path} + \texttt{frames}                         & 31.0 & 75.0 & 58.0 & 45.0 \\
-\texttt{exec\_path} + \texttt{step\_frames}                   & 32.0 & 76.0 & 59.0 & 46.0 \\
-\texttt{frames} + \texttt{step\_frames}                       & 32.0 & 76.0 & 60.0 & 47.0 \\
-\texttt{exec\_path} + \texttt{frames} + \texttt{step\_frames} & \textbf{33.0} & \textbf{76.0} & \textbf{60.0} & \textbf{47.0} \\
+\texttt{no\_runtime} (baseline)                               & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+\texttt{exec\_path} only                                      & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+\texttt{frames} only                                          & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+\texttt{step\_frames} only                                    & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+\texttt{exec\_path} + \texttt{frames}                         & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+\texttt{exec\_path} + \texttt{step\_frames}                   & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+\texttt{frames} + \texttt{step\_frames}                       & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} & \xxx{TBD} \\
+\texttt{exec\_path} + \texttt{frames} + \texttt{step\_frames} & \textbf{\xxx{TBD}} & \textbf{\xxx{TBD}} & \textbf{\xxx{TBD}} & \textbf{\xxx{TBD}} \\
 \bottomrule
 \end{tabular}
-}
 \end{table}
 
-Each row in \Cref{tab:ablation} tests a distinct hypothesis about which data type carries diagnostic value. \texttt{exec\_path} only tests whether the call graph alone, without variable state, is sufficient to improve resolution. \texttt{frames} only tests whether return-event variable snapshots suffice for the model to locate and repair a bug. \texttt{step\_frames} only tests whether line-level granularity adds value over return frames. The combined configurations reveal whether the data types interact: gains from pairing two structures may exceed or fall short of what either provides in isolation.
-
-We expect \texttt{step\_frames} to contribute most to the resolved rate. Step frames expose variable state at every source line and allow the model to pinpoint exactly where a value becomes incorrect, which is the information most directly useful for patch generation. We expect \texttt{exec\_path} alone to provide moderate localization improvement, because the call graph narrows the function space the model must search, but limited repair improvement, because it carries no variable state. If the full combination of all three structures significantly outperforms any single structure, it suggests the data types are complementary and that path coverage, return-event snapshots, and line-level state each contribute information the others do not.
+\xxx{TODO Add brief discussion. But overall we expect \texttt{step\_frames} to contribute most to the resolved rate. Here, we need to mention: 1. if combination of 3 significantly outperform others, then they complement each other; if not, it perhaps means one is a (informational) subset of the other. } 
 
 \section{Results on BugsInPy}
 % Generalisability beyond SWE-Bench Lite
