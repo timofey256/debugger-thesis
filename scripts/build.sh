@@ -28,11 +28,11 @@ mkdir -p "$OUT_DIR"
 echo "==> Building thesis (main.tex)..."
 latexmk -pdflua main
 
-echo "==> Building Czech abstract..."
-latexmk -pdflua abstract-cz
+# echo "==> Building Czech abstract..."
+# latexmk -pdflua abstract-cz
 
-echo "==> Building English abstract..."
-latexmk -pdflua abstract-en
+# echo "==> Building English abstract..."
+# latexmk -pdflua abstract-en
 
 echo ""
 echo "Done! PDFs written to out/"
