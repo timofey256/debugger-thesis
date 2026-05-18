@@ -15,7 +15,7 @@ Naive prompting fails on complex logical bugs. Researchers have developed conver
 
 Other frameworks go further by simulating human debugging workflows. \citet{zhong2024debug} proposed a "Debug like a Human" approach that forces the model to verify runtime execution step-by-step. By prompting the model to reason about control flow and variable states before generating a patch, these methods aim to reduce fixes that look syntactically correct but fail functionally.
 
-Standard prompting approaches share a structural weakness: effective debugging requires both \textit{forward inference} (predicting outputs from inputs) and \textit{backward reasoning}, meaning deducing the root cause from an observed error state. Without execution traces, LLMs must perform this backward inference from static code alone, which is unreliable.
+Standard prompting approaches share a structural weakness: effective debugging requires both forward inference (predicting outputs from inputs) and backward reasoning, meaning deducing the root cause from an observed error state. Without execution traces, LLMs must perform this backward inference from static code alone, which is unreliable.
 
 \section{Fine-Tuning on Runtime Information}
 
