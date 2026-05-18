@@ -25,6 +25,15 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+echo "==> Converting SVG icons to PDF..."
+for svg in "$SRC_DIR"/img/*.svg; do
+  pdf="${svg%.svg}.pdf"
+  if [[ ! -f "$pdf" || "$svg" -nt "$pdf" ]]; then
+    echo "    inkscape: $(basename "$svg") -> $(basename "$pdf")"
+    inkscape --export-type=pdf --export-filename="$pdf" "$svg" 2>/dev/null
+  fi
+done
+
 echo "==> Building thesis (main.tex)..."
 latexmk -pdflua main
 

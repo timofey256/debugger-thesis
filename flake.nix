@@ -55,6 +55,7 @@
         })
         pkgs.ghostscript
         pkgs.gnumake
+        pkgs.inkscape
 
         openspec.packages.${system}.default
       ];
