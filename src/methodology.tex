@@ -203,6 +203,7 @@ The truncation bound $\tau_{1000}$ applies after either choice. Long lists, larg
 \label{subsec:trace-selection}
 
 A project instance may have multiple failing tests, each producing its own entry in \texttt{auto\_debug.json}. For the LLM session we select a single representative trace. The current heuristic selects the first entry in the list. This is a deliberate simplification: more sophisticated strategies such as selecting the trace with the deepest frame stack, the most distinct exception type, or the most variable-rich locals were considered but not implemented. The first-trace heuristic is deterministic and easy to reason about, which is important for reproducibility.
+\unsure{We select the first trace out of all produced as a simple heuristic. It is definitely a limitation and we should either acknowledge it somwhere (where?), or develop a (still simple) strategy}
 
 \subsection{Static prompt approach}
 \label{subsec:static-prompt}

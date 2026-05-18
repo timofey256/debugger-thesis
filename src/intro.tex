@@ -2,10 +2,17 @@
 \chapter{Introduction}
 
 \section{Motivation}
-Agent-based systems now represent the standard approach to LLM-based
-automated program repair. \citet{yang2024sweagent} introduced SWE-agent,
-which gives the model a custom tool interface for file inspection, code
-search, and test execution. \citet{zhang2024autocoderover} proposed
+Automated program repair (APR) is the task of locating and fixing bugs in code.
+Success is typically defined as whether the change patches a broken behaviour. 
+Early APR approaches relied on utilisation of static context, such as abstract syntax trees (ASTs), predefined fix templates, 
+search-based methods that mutated code until tests passed, or constraint solvers that synthesized repairs from formal specifications.
+With the rise of large language models, the field shifted toward the repair based non-deterministic models that are trained on large code and text corpora.
+Recent surveys show that agent-based repair becomes a dominant paradigm~\citep{zhang2024slrapr, liu2024agentsse}.
+We define agents as loops of LLM forward passes supplied with the available context. Agents often interact with the environment through
+requesting files content, search for symbols, and run tests. This loop iterates until a fixing patch is produced.
+
+Most of current agent systems share a common assumption that static context is enough for repair.
+For example, \citet{zhang2024autocoderover} proposed
 AutoCodeRover, which replaces raw file reads with AST-level retrieval and
 spectrum-based fault localization. \citet{xia2024agentless} designed
 Agentless, a fixed pipeline of hierarchical localization, patch sampling,
@@ -13,41 +20,33 @@ and test-based candidate selection. On SWE-bench Lite
 \citep{jimenez2023swebench}, these three systems reached 12.5\%, 19\%,
 and 32\% pass@1, respectively.
 
-The repair process these systems follow has no analog in how developers actually debug.
-A developer investigating a test failure reads the call stack, inspects argument values
-at each frame, and checks variable states at the crash point, typically through a
-debugger or execution trace. These systems give the model none of that. They supply
-source code and a test failure message, and the model must reconstruct what the program
-did from text alone. \citet{chen2023teaching} point to this as the core constraint of
+However, a fundamental limitation of this approach is that it's not how humans actually debug programs.
+When investigating a failed test, developer can read the call stack, inspect how variables
+change over time, and check the program state at the crash point. Execution-free systems give the model none of that.
+They provide the source code and an exception message, and the model must reconstruct what the program
+did from static context alone. \citet{chen2023teaching} point to this as the core constraint of
 execution-free repair, and \citet{zhong2024debug} show that explicitly providing models
-with control flow and variable state information before patch generation raises
-correctness.
+with control flow and variable state information before patch generation boosts performance.
+\unsure{Not sure if this belongs here. We dicuss some of it in Related work, but here my goal was to point out that our hypothesis about runtime is found in other literature}
 
-This thesis asks whether supplying runtime information collected during
-test execution improves patch correctness. We instrument Python unit
-tests to collect call stacks, argument values, and exception state, and
-we supply the collected data in the LLM prompt alongside the failing test
-and source code. We evaluate this approach against a static-context
-baseline on real Python bugs and build on prior evidence that
+Our goal is to investigate whether using runtime information for program repair
+improves patch correctness. We evaluate this approach against a static-context
+baseline on real Python bugs. We build on prior evidence that
 execution-derived context improves model reasoning on code tasks
 \citep{ni2024nextteachinglargelanguage,han2025rethinkingcapabilityfinetunedlanguage}.
 
 \section{Our contributions}
-We present a system for runtime-augmented LLM-based program repair.
-The specific contributions are:
 \begin{enumerate}
-  \item \textbf{Execution tracer for failing unit tests.} We instrument Python test suites via
-    \texttt{sys.settrace} to collect, per failing test, the call stack, executed function names,
-    and argument values at function entry. We bound collection depth and serialize records into
-    structured form.
-  \item \textbf{Multi-turn tool interface for repair.} We design a session in which the LLM
-    accesses runtime data through tool calls: file reading, call-graph queries, argument
-    inspection, and test execution. The model selects which data to retrieve and when.
-  \item \textbf{Comparative and ablative experiments.} On SWE-bench Lite and BugsInPy, we
+  \item Custom debugger hooks for trace collection. We developed a suite of custom debugger hooks that
+      allow collecting runtime traces in the most common Python test frameworks: \texttt{pytest}, \texttt{unittest}, \texttt{django} (modification of \texttt{unittest}).
+      The collected traces are outputed in a structured JSON format and contain entry/exit frames and line-by-line frames with local variables.
+  \item Comparative and ablative experiments. On SWE-bench Lite and BugsInPy, we
     measure patch correctness for a no-context baseline, static trace injection, and the
     interactive interface. Ablations over trace subsets quantify how much each category of
     runtime information contributes to repair success.
-  \item \textbf{Fine-tuning on runtime-augmented data.} We fine-tune Qwen2.5-Coder-7B-Instruct on approximately 300 training examples constructed from the benchmark traces, pairing each initial issue prompt and its runtime trace with the gold reference patch. We train with QLoRA on a single A100 GPU across five seeds and evaluate whether fine-tuning on task-specific runtime data further improves repair over prompting alone.
+  \item Fine-tuning on runtime-augmented data. We fine-tune Qwen2.5-Coder-7B-Instruct on approximately 300 training samples
+      collected using our abovementioned trace-collecting tool. We train with QLoRA on a single A100 GPU across five seeds and
+      evaluate whether fine-tuning on task-specific runtime data further improves repair compared to prompting alone.
 \end{enumerate}
 
 \section{Thesis structure}
