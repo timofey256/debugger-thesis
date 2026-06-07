@@ -2,51 +2,56 @@
 \chapter{Introduction}
 
 \section{Motivation}
-Automated program repair (APR) is the task of locating and fixing bugs in code.
-Success is typically defined as whether the change patches a broken behaviour. 
-Early APR approaches relied on utilisation of static context, such as abstract syntax trees (ASTs), predefined fix templates, 
-search-based methods that mutated code until tests passed, or constraint solvers that synthesized repairs from formal specifications.
-With the rise of large language models, the field shifted toward the repair based non-deterministic models that are trained on large code and text corpora.
+Automated program repair (APR) is the task of locating and fixing the defective behaviour in code.
+Success is typically defined as whether the change proposed by an APR system resolves this faulty behaviour. 
+Early APR approaches mostly relied on symbolic analysis, such as abstract syntax trees (ASTs), predefined fix templates, 
+search-based methods that mutated code until tests passed, or constraint solvers that synthesized repairs based on formal specifications.
+Modern systems have shifted to probabilistic analysis with flexible reasoning based on non-deterministic models that are trained on large code and text corpora.
 Recent surveys show that agent-based repair becomes a dominant paradigm~\citep{zhang2024slrapr, liu2024agentsse}.
-We define agents as loops of LLM forward passes supplied with the available context. Agents often interact with the environment through
-requesting files content, search for symbols, and run tests. This loop iterates until a fixing patch is produced.
+Here, agents are understood as iterative processes that are built around an underlying LLM model and repeatedly invoke it while keeping a context.
+Agents often interact with the environment through requesting files content, search for symbols, and run tests.
+This loop iterates until a desired goal is achieved.
 
-Most of current agent systems share a common assumption that static context is enough for repair.
-For example, \citet{zhang2024autocoderover} proposed
-AutoCodeRover, which replaces raw file reads with AST-level retrieval and
+Most of current agent systems share a common assumption that static source code is enough for repair,
+although many systems provide a high-level access to the code.
+For example, \citet{zhang2024autocoderover} proposed AutoCodeRover, which replaces raw file reads with AST-level retrieval and
 spectrum-based fault localization. \citet{xia2024agentless} designed
-Agentless, a fixed pipeline of hierarchical localization, patch sampling,
-and test-based candidate selection. On SWE-bench Lite
-\citep{jimenez2023swebench}, these three systems reached 12.5\%, 19\%,
-and 32\% pass@1, respectively.
+Agentless, a fixed pipeline of hierarchical localization, patch sampling, and test-based candidate selection.
+On SWE-bench Lite \citep{jimenez2023swebench}, these three systems reached 12.5\%, 19\%, and 32\% pass@1, respectively,
+where pass@1 measures the proportion of test samples resolved correctly by the model on the first try.
 
-However, a fundamental limitation of this approach is that it's not how humans actually debug programs.
-When investigating a failed test, developer can read the call stack, inspect how variables
-change over time, and check the program state at the crash point. Execution-free systems give the model none of that.
-They provide the source code and an exception message, and the model must reconstruct what the program
-did from static context alone. \citet{chen2023teaching} point to this as the core constraint of
+However, a fundamental limitation of this approach is that this is not how humans actually debug programs.
+When investigating a failed test, a developer can break the program in a debugger, read the call stack, inspect how variables
+change over time, and check the program state at the crash point.
+Systems that perform APR based on just static source code do not give the LLM model any of the runtime information that human
+relies on when fixing a bug.
+Instead, the only available information is the source code and an exception message,
+and the model must reconstruct what the program did from static context alone.
+This thesis is not the first one to point out this limitation. \citet{chen2023teaching} point to this as the core constraint of
 execution-free repair, and \citet{zhong2024debug} show that explicitly providing models
 with control flow and variable state information before patch generation boosts performance.
-\unsure{Not sure if this belongs here. We dicuss some of it in Related work, but here my goal was to point out that our hypothesis about runtime is found in other literature}
 
-Our goal is to investigate whether using runtime information for program repair
-improves patch correctness. We evaluate this approach against a static-context
-baseline on real Python bugs. We build on prior evidence that
-execution-derived context improves model reasoning on code tasks
+Our goal is to investigate whether using runtime information, such as
+the call stack, value of local variables, and execution trace, for program repair
+improves patch correctness. We evaluate this approach on a baseline with access to only static source code with
+bugs in real-world Python projects.
+We build on prior evidence that such execution-derived context helps model reasoning on coding tasks
 \citep{ni2024nextteachinglargelanguage,han2025rethinkingcapabilityfinetunedlanguage}.
 
 \section{Our contributions}
 \begin{enumerate}
-  \item Custom debugger hooks for trace collection. We developed a suite of custom debugger hooks that
-      allow collecting runtime traces in the most common Python test frameworks: \texttt{pytest}, \texttt{unittest}, \texttt{django} (modification of \texttt{unittest}).
-      The collected traces are outputed in a structured JSON format and contain entry/exit frames and line-by-line frames with local variables.
-  \item Comparative and ablative experiments. On SWE-bench Lite and BugsInPy, we
-    measure patch correctness for a no-context baseline, static trace injection, and the
-    interactive interface. Ablations over trace subsets quantify how much each category of
-    runtime information contributes to repair success.
-  \item Fine-tuning on runtime-augmented data. We fine-tune Qwen2.5-Coder-7B-Instruct on approximately 300 training samples
-      collected using our abovementioned trace-collecting tool. We train with QLoRA on a single A100 GPU across five seeds and
-      evaluate whether fine-tuning on task-specific runtime data further improves repair compared to prompting alone.
+  \item We develop a custom debugger hooks for trace collection which 
+      allow collecting runtime frames in the most common Python test frameworks: \texttt{pytest}, \texttt{unittest}, \texttt{django} (modification of \texttt{unittest}).
+      The collected traces are serialized in a structured JSON format and contain entry/exit frames
+        and line-by-line frames with the values of local variables.
+  \item We perform comparative and ablative experiments. On SWE-bench Lite and BugsInPy, we
+    measure patch correctness in an interactive environment, where model can perform source code exploration and, optionally,
+    has access to collected runtime information.
+    We evaluate under 2 settings: baseline where model has access to no runtime information, and where runtime information is available.
+    Ablations over trace subsets quantify how much each category of runtime information contributes to repair success.
+  \item We fine-tune a small model on the collected runtime data to explore how runtime information changes model performance.
+      Specifically, we run experiments on Qwen2.5-Coder-7B-Instruct on approximately 300 training samples
+      collected using our custom debugger hooks. We train with QLoRA on a single A100 GPU across five seeds.
 \end{enumerate}
 
 \section{Thesis structure}
@@ -64,5 +69,9 @@ This thesis attempts to address the following research questions:
 \textbf{RQ3:} Does fine-tuning on debugging-specific data outperform prompting general-purpose models? 
 \end{tcolorbox}
 
-\Cref{ch:related-work} reviews related work on learning-based program repair, LLM-based test repair, and execution-aware approaches. \Cref{ch:system-methodology} presents our approach, including runtime information collection, filtering, serialization, and the LLM tool-based interface. The evaluation chapter describes the experimental setup, datasets, metrics, and results, including ablations over runtime context. \Cref{ch:discussion} discusses limitations and threats to validity. \Cref{ch:conclusion} summarizes the findings and outlines future work.
+\Cref{ch:related-work} reviews the related work on modern APR, LLM-based repair, and recent approaches that involve runtime frames in resolving incorrect program behaviour.
+\Cref{ch:system-methodology} presents our approach, including runtime information collection, filtering and serialization of runtime frames, and the LLM tool-based interface.
+The evaluation chapter describes the experimental setup, datasets, metrics, and results, including ablations over runtime context.
+\Cref{ch:discussion} discusses limitations and threats to validity.
+\Cref{ch:conclusion} summarizes our results, outlines future work and possible improvements.
 \change{TODO: validate this paragraph when we finish later chapters}
