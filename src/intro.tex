@@ -27,6 +27,34 @@ Systems that perform APR based on just static source code do not give the LLM mo
 relies on when fixing a bug.
 Instead, the only available information is the source code and an exception message,
 and the model must reconstruct what the program did from static context alone.
+Even worse, sometimes the only available information is incorrect program output, which makes bug localization even more challenging.
+To demonstrate the importance of accessing runtime program state, consider the following classical example of off-by-one error:
+
+\begin{algorithm}[ht]
+\caption{Binary search with an off-by-one bug: \texttt{hi} is initialized to \texttt{len(nums)} instead of \texttt{len(nums) - 1}.}
+\label{alg:binary-search-bug}
+\begin{algorithmic}[1]
+\Require sorted array \texttt{nums}, integer \texttt{target}
+\Ensure index of \texttt{target} in \texttt{nums}, or $-1$ if absent
+\State $lo \gets 0$
+\State $hi \gets \text{len}(nums)$
+\While{$lo < hi$}
+    \State $mid \gets \lfloor (lo + hi) / 2 \rfloor$
+    \If{$nums[mid] = target$}
+        \Return $mid$
+    \ElsIf{$nums[mid] < target$}
+        \State $lo \gets mid + 1$
+    \Else
+        \State $hi \gets mid$
+    \EndIf
+\EndWhile
+\State \Return $-1$
+\end{algorithmic}
+\end{algorithm}
+
+While it is possible to find this subtle bug by carefully verifying the algorithm, the reader can imagine how complicated
+real-world implementations can get, where such bugs can become even more elusive.
+
 This thesis is not the first one to point out this limitation. \citet{chen2023teaching} point to this as the core constraint of
 execution-free repair, and \citet{zhong2024debug} show that explicitly providing models
 with control flow and variable state information before patch generation boosts performance.
@@ -52,6 +80,7 @@ We build on prior evidence that such execution-derived context helps model reaso
   \item We fine-tune a small model on the collected runtime data to explore how runtime information changes model performance.
       Specifically, we run experiments on Qwen2.5-Coder-7B-Instruct on approximately 300 training samples
       collected using our custom debugger hooks. We train with QLoRA on a single A100 GPU across five seeds.
+      We treat fine-tuning as an open empirical question and focus primarily on inference-time use of runtime information.
 \end{enumerate}
 
 \section{Thesis structure}
@@ -73,5 +102,5 @@ This thesis attempts to address the following research questions:
 \Cref{ch:system-methodology} presents our approach, including runtime information collection, filtering and serialization of runtime frames, and the LLM tool-based interface.
 The evaluation chapter describes the experimental setup, datasets, metrics, and results, including ablations over runtime context.
 \Cref{ch:discussion} discusses limitations and threats to validity.
-\Cref{ch:conclusion} summarizes our results, outlines future work and possible improvements.
+\Cref{ch:conclusion} summarizes our results, and outlines future work and possible improvements.
 \change{TODO: validate this paragraph when we finish later chapters}
