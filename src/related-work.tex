@@ -1,36 +1,67 @@
 \chapter{Related work}
 \label{ch:related-work}
 
-\section{Traditional and Learning-Based Program Repair}
+\section{Program repair}
 
-Automated Program Repair (APR) has historically been dominated by search-based and constraint-based techniques. These methods treat repair as an optimization or constraint satisfaction problem, relying on test suites to validate candidate patches. They perform well on specific bug classes such as buffer overflows or integer errors, but fail on semantic errors that require understanding developer intent \citep{zhang2023surveylearningbasedautomatedprogram}.
+Historically, search-based and constraint-based techniques have been the dominating the field of Automated Program Repair.
+Concrete implementations include genetic algorithms, where fitness is measured by the number of passing tests, and symbolic execution, which infers formal specifications for SMT solvers \citep{yang2025surveyllmbasedautomatedprogram}.
+In other words, these methods address program repairing as an optimization problem, relying on test suites to validate and guide the patch construction.
+They perform well on specific bug classes such as buffer overflows or integer errors, but fail on semantic errors that require understanding of the application logic \citep{zhang2023surveylearningbasedautomatedprogram}.
 
-The adoption of Large Language Models (LLMs) changed the approach fundamentally. Learning-based systems train on large code corpora and treat repair as a generation task, moving away from predefined templates and heuristic search \citep{yang2025surveyllmbasedautomatedprogram}.
+This approach was challenged by Large Language Models (LLMs). They can be viewed as learning-based systems trained on large text corpora, including code.
+LLMs treat repair as a generation task, moving away from heuristic and constraint search. LLMs are built on the Transformer architecture \citep{vaswani2017attention}.
+The self-attention mechanism allows the model to weigh the importance of different tokens relative to one another regardless of their distance,
+which enables it to capture long-range dependencies between variable definitions and their usages and to model the syntax and semantics of programming languages \citep{austin2021program}.
 
-\section{Prompting and LLM-Based Debugging}
+Although a naive prompt asking an LLM to correct a bug works in simple cases, naive prompting fails on more complex logical bugs.
+Researchers have developed conversational repair loops to address this issue.
+\citet{chen2023teaching} introduced \textit{Self-Debugging}, where an LLM is prompted to explain its code,
+identify errors based on execution feedback, and iteratively refine its own output.
+However, this approach is limited by the model's inability to observe actual runtime state.
+This problem poses a structural weakness: effective debugging requires both forward inference (predicting outputs from inputs)
+and backward reasoning (deducing inputs from outputs; or, the root cause from an observed error state).
+In the absence of runtime date, LLMs must perform this backward reasoning using only the static source code, which is unreliable.
 
-Modern Automated Program Repair (APR) relies on Large Language Models (LLMs) built on the Transformer architecture \citep{vaswani2017attention}. The self-attention mechanism allows the model to weigh the importance of different tokens relative to one another regardless of their distance, which enables it to capture long-range dependencies between variable definitions and their usages and to model the syntax and semantics of programming languages \citep{austin2021program}.
+Other frameworks take a step further and try to simulate human debugging workflows.
+\citet{zhong2024debug} proposed a "Debug like a Human" approach that forces the model to verify runtime execution step-by-step.
+Authors split the code into blocks, prompt the LLM to go over the code block-by-block and verify the correctness of each of the segments sequentially,
+with access to runtime information such as variable states.
+The purpose is to focus on code pieces that is syntactically correct but logically faulty.
 
-Naive prompting fails on complex logical bugs. Researchers have developed conversational repair loops to address this. \citet{chen2023teaching} introduced \textit{Self-Debugging}, where an LLM is prompted to explain its code, identify errors based on execution feedback, and iteratively refine its own output. The approach is limited by the model's inability to observe actual runtime state.
+Researchers have also explored fine-tuning LLMs on datasets supplied with runtime information.
+The hypothesis is that exposing models to execution traces during training allows them to internalize the relationship between code structure and runtime behavior,
+thus building a better connection between the syntax and control flow.
+However, recent empirical studies raise doubts on this approach.
+\citet{wang2025codesemanticshelpcomprehensive} conducted a comprehensive study on execution trace-based information,
+finding that appending trace data to the training data does not consistently improve LLMs code repair performance.
+They argue that the noise and complexity of raw traces can overwhelm the model's attention mechanisms.
+\citet{han2025rethinkingcapabilityfinetunedlanguage} re-evaluated fine-tuned models for vulnerability repair
+and found that standard fine-tuning often leads to overfitting on specific bug patterns
+rather than building a better understanding of program semantics.
 
-Other frameworks go further by simulating human debugging workflows. \citet{zhong2024debug} proposed a "Debug like a Human" approach that forces the model to verify runtime execution step-by-step. By prompting the model to reason about control flow and variable states before generating a patch, these methods aim to reduce fixes that look syntactically correct but fail functionally.
-
-Standard prompting approaches share a structural weakness: effective debugging requires both forward inference (predicting outputs from inputs) and backward reasoning, meaning deducing the root cause from an observed error state. Without execution traces, LLMs must perform this backward inference from static code alone, which is unreliable.
-
-\section{Fine-Tuning on Runtime Information}
-
-Researchers have also explored fine-tuning LLMs on datasets augmented with runtime information. The hypothesis is that exposing models to execution traces during training allows them to internalize the relationship between code structure and runtime behavior.
-
-Recent empirical studies cast doubt on this approach. \citet{wang2025codesemanticshelpcomprehensive} conducted a comprehensive study on execution trace-based information, finding that appending trace data to the training context does not consistently improve repair performance for general-purpose code LLMs. They argue that the noise and complexity of raw traces can overwhelm the model's attention mechanisms. \citet{han2025rethinkingcapabilityfinetunedlanguage} re-evaluated fine-tuned models for vulnerability repair and found that standard fine-tuning often leads to overfitting on specific bug patterns rather than building an understanding of program semantics.
-
-These results do not permit a simple conclusion. Appending raw traces and fine-tuning does not reliably improve repair performance. Work on execution-centric training suggests that models can learn substantially more about program semantics when trained to predict execution-relevant signals such as intermediate states, rather than when traces are treated as unstructured extra text \citep{armengolestape2025execution}. We treat fine-tuning as an open empirical question and focus primarily on inference-time use of runtime context.
+Nonetheless, these results are inconclusive. Appending raw traces and fine-tuning does not reliably improve repair performance.
+Other work on execution-centric training concludes that models can learn substantially more about program semantics
+when trained to predict execution-relevant signals, such as intermediate states,
+instead of treating runtime data as unstructured extra text \citep{armengolestape2025execution}.
 
 \section{Agents}
 \label{sec:agent-repair}
 
-\citet{jimenez2023swebench} introduced SWE-bench, an evaluation framework of 2,294 software engineering problems drawn from real GitHub issues and pull requests across 12 popular Python repositories. Given a codebase and an issue description, a model must produce a patch that passes the associated test suite. When first published, the best-performing model, Claude 2, solved 1.96\% of issues. SWE-bench Lite is a 300-instance subset that has become the standard comparison point.
+\citet{jimenez2023swebench} introduced SWE-bench, an evaluation framework of 2,294 software engineering problems
+drawn from real GitHub issues and pull requests across 12 popular Python repositories.
+Given a codebase and an issue description, a model must produce a patch that passes the associated test suite.
+When first published, the best-performing model, Claude 2, solved 1.96\% of issues.
+SWE-bench Lite is a 300-instance subset that has become the standard comparison point.
 
-The dominant early approach treats repair as an interactive task. \citet{yang2024sweagent} introduced SWE-agent, which gives a language model a custom Agent-Computer Interface (ACI) with file viewing, editing, code search, and test execution. The model interacts with the repository iteratively, issuing commands and observing their outputs before producing a patch. This paradigm is an instance of the ReAct framework \citep{yao2022react}, which alternates Thought, Action, and Observation steps until the agent submits a result (Algorithm~\ref{alg:react}). SWE-agent reached 12.5\% pass@1 on SWE-bench Lite with GPT-4. \citet{zhang2024autocoderover} proposed AutoCodeRover, which replaces raw file navigation with AST-level code search and spectrum-based fault localization, allowing the model to retrieve class definitions and method signatures directly rather than reading entire files. AutoCodeRover reached 19\% pass@1 on SWE-bench Lite.
+The dominant early approach treats repair as an interactive task.
+\citet{yang2024sweagent} introduced SWE-agent, which gives a language model a custom Agent-Computer Interface (ACI) with file viewing, editing, code search, and test execution.
+The model interacts with the repository iteratively, issuing commands and observing their outputs before producing a patch.
+This paradigm is an instance of the ReAct framework \citep{yao2022react},
+which alternates Thought, Action, and Observation steps until the agent submits a result (Algorithm~\ref{alg:react}).
+SWE-agent reached 12.5\% pass@1 on SWE-bench Lite with GPT-4.
+\citet{zhang2024autocoderover} proposed AutoCodeRover, which replaces raw file navigation with AST-level code search and spectrum-based fault localization,
+allowing the model to retrieve class definitions and method signatures directly rather than reading entire files.
+AutoCodeRover reached 19\% pass@1 on SWE-bench Lite.
 
 \begin{algorithm}[ht]
 \caption{ReAct agent loop, the basis of interactive SWE agents \citep{yao2022react}.}
@@ -47,8 +78,8 @@ The dominant early approach treats repair as an interactive task. \citet{yang202
     \EndIf
     \State obs $\gets \text{Execute}(\text{action})$ \Comment{tool returns observation}
     \State context $\gets$ context $+$ [thought, action, obs]
-\EndFor
-\Return failure
+\EndFor 
+\State \Return{failure}
 \end{algorithmic}
 \end{algorithm}
 
