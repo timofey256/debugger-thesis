@@ -44,24 +44,24 @@ Other work on execution-centric training concludes that models can learn substan
 when trained to predict execution-relevant signals, such as intermediate states,
 instead of treating runtime data as unstructured extra text \citep{armengolestape2025execution}.
 
-\section{Agents}
+\section{Agent and agentless approaches}
 \label{sec:agent-repair}
 
-\citet{jimenez2023swebench} introduced SWE-bench, an evaluation framework of 2,294 software engineering problems
-drawn from real GitHub issues and pull requests across 12 popular Python repositories.
-Given a codebase and an issue description, a model must produce a patch that passes the associated test suite.
-When first published, the best-performing model, Claude 2, solved 1.96\% of issues.
-SWE-bench Lite is a 300-instance subset that has become the standard comparison point.
+The standard baseline dataset for evaluating coding agents performance is SWE-bench \citet{jimenez2023swebench}, which consists of 2,294 software engineering problems.
+The dataset is scraped from real GitHub issues and pull requests across 12 popular Python repositories.
+Given a codebase and an issue description, the goal of the evaluated system is to produce a patch that passes the failing test case.
+For smaller systems, evaluation sometimes uses a 300-sample subset, known as SWE-bench Lite.
+When first published, the best-performing model, Claude 2, solved just 1.96\% of issues on SWE-Bench.
+Since then, the highest achieved score has increased dramatically, reaching 87.6\% with the Claude Opus 4.7 model.
 
-The dominant early approach treats repair as an interactive task.
-\citet{yang2024sweagent} introduced SWE-agent, which gives a language model a custom Agent-Computer Interface (ACI) with file viewing, editing, code search, and test execution.
-The model interacts with the repository iteratively, issuing commands and observing their outputs before producing a patch.
-This paradigm is an instance of the ReAct framework \citep{yao2022react},
-which alternates Thought, Action, and Observation steps until the agent submits a result (Algorithm~\ref{alg:react}).
-SWE-agent reached 12.5\% pass@1 on SWE-bench Lite with GPT-4.
-\citet{zhang2024autocoderover} proposed AutoCodeRover, which replaces raw file navigation with AST-level code search and spectrum-based fault localization,
-allowing the model to retrieve class definitions and method signatures directly rather than reading entire files.
-AutoCodeRover reached 19\% pass@1 on SWE-bench Lite.
+The idea to treat repair as an interactive task within a given environment has become the dominant approach. 
+An agent is an iterative process in which LLM is repeatedly called to analyze the environment through a set of available tools with a goal of generating
+a piece code that satisfies the given requirements.
+As an example, \citet{yang2024sweagent} introduced SWE-Agent, which gives a language model a simple interface with file viewing, editing,
+code search, and test execution.
+This paradigm can be generalized to the following algorithm, sometimes referred to as the ReAct framework \citep{yao2022react}.
+It alternates steps like thought, action, and observation until the agent submits a result (Algorithm~\ref{alg:react}).
+With this approach, SWE-agent was able to reach 12.5\% success rate on submissions generated on the first try (metric known as pass@1) on SWE-bench Lite with GPT-4.
 
 \begin{algorithm}[ht]
 \caption{ReAct agent loop, the basis of interactive SWE agents \citep{yao2022react}.}
@@ -83,24 +83,43 @@ AutoCodeRover reached 19\% pass@1 on SWE-bench Lite.
 \end{algorithmic}
 \end{algorithm}
 
-\citet{xia2024agentless} proposed Agentless, which replaces the interactive loop with a fixed three-phase pipeline: hierarchical fault localization (file, then function, then line), patch generation by sampling multiple candidates, and patch selection by re-running tests. The model does not choose its next action; the pipeline is fixed by the system. Agentless reached 32\% pass@1 on SWE-bench Lite at a cost of \$0.70 per instance, outperforming contemporary interactive agents at lower cost. The result shows that structured localization before generation carries more of the benefit than iterative interaction. \citet{yang2025kimidev} extended this with Kimi-Dev, which uses Agentless-style training as a skill prior. The model first trains on the structured pipeline to internalize localization, code editing, and self-reflection patterns, then adapts to agent interaction via fine-tuning on 5,000 publicly available trajectories. Kimi-Dev reached 60.4\% on SWE-bench Verified using the workflow approach and 48.6\% pass@1 with agent adaptation.
+Other approaches take a step further and try to optimize the stored source code representation by building optimized data structures.
+For instance, AutoCodeRover \citet{zhang2024autocoderover} replaces raw file navigation with AST-level code search and spectrum-based fault localization,
+allowing the model to retrieve class definitions and method signatures directly rather than reading entire files.
+AutoCodeRover reached 19\% pass@1 on SWE-bench Lite.
 
-As reported pass@1 numbers have grown rapidly, several papers have raised concerns about what these numbers measure. \citet{liang2025sweillusion} showed that state-of-the-art models can identify the buggy file path from the issue description alone, without repository access, at up to 76\% accuracy. On repositories outside SWE-bench the same models drop to 53\%, suggesting that part of the apparent localization ability reflects memorization rather than reasoning. \citet{martinez2025dissecting} analyzed 178 leaderboard submissions and found that many systems do not disclose whether their pass@1 comes from a single attempt or from reranking across multiple sampled patches, making comparisons unreliable without transparent evaluation protocols.
+To give a better overview, we also discuss agentless approaches, i.e., algorithms that perform patch generation in a more pipelined fashion.
+Some frameworks focus on candidate generation and then pick the most viable patch.
+\citet{xia2024agentless} propose Agentless, where an architecture is composed of three stages:
+hierarchical fault localization (triplets of file, function, and line), sampling of patch candidates, and patch selection by re-running tests.
+This strategy not only reached 32\% pass@1 on SWE-bench Lite (more than the previous approach),
+but also performed at a noticeably lower cost (approx. \$0.70 per instance).
+The result suggests that fault localization might be an effective approach in nudging the model at potentially problematic code sites. 
+\citet{yang2025kimidev} extended this with Kimi-Dev, which uses Agentless-style training as a skill prior.
+The model first trains on the structured pipeline to internalize localization, code editing, and self-reflection patterns,
+then adapts to agent interaction via fine-tuning on 5,016 available trajectories.
+Kimi-Dev reached 60.4\% on SWE-bench Verified using the workflow approach and 48.6\% pass@1 with agent adaptation.
+
+As reported pass@1 numbers have grown rapidly, several papers have raised concerns about what these numbers measure.
+\citet{liang2025sweillusion} showed that state-of-the-art models can identify the buggy file path from the issue description alone,
+without repository access, at up to 76\% accuracy.
+On repositories outside SWE-bench the same models drop to 53\%, suggesting that part of the apparent localization ability reflects memorization rather than reasoning.
+\citet{martinez2025dissecting} analyzed 178 leaderboard submissions and found that many systems do not disclose whether their pass@1
+comes from a single attempt or from reranking across multiple sampled patches, making comparisons unreliable without transparent evaluation protocols.
 
 \section{Code World Models}
 
-\unsure{Mentioning CWMs is good for overall review of approaches to codegen, but right now IMO it makes this chapter look a bit unfocused. Do we want to remove it?} APR research has moved toward systems called "Code World Models" that simulate the program's execution environment, treating code generation as a state-transition prediction task rather than text completion.
-
 \begin{figure}[ht]
     \centering
-    % Use the exact filename here. Extension .pdf can be omitted.
     \includegraphics[width=1.0\textwidth]{figures/cwm_training_stages}
     \caption{The Code World Model (CWM) training pipeline. This diagram illustrates the three-stage process: general pre-training, mid-training on observation-action trajectories (including Python interpreter traces and agentic interactions), and final post-training/RL alignment \citep{cwm2025}.}
     \label{fig:cwm_stages}
 \end{figure}
 
 \subsection{Learning to Reason About Execution}
-\citet{ni2024nextteachinglargelanguage} introduced \textit{NExT} (Naturalized Execution Tuning), a method that teaches LLMs to reason about code execution by generating natural language rationales derived from execution traces. By training the model to articulate the runtime behavior, NExT connects static code with dynamic logic.
+\citet{ni2024nextteachinglargelanguage} introduced \textit{NExT} (Naturalized Execution Tuning),
+a method that teaches LLMs to reason about code execution by generating natural language rationales derived from execution traces.
+By training the model to articulate the runtime behavior, NExT connects static code with dynamic logic.
 
 \subsection{World Models as Simulators}
 The most complete expression of this approach is the \textit{Code World Model (CWM)} \citep{cwm2025}. Unlike previous models that only see code text, CWM is trained on "observation-action trajectories" from interactive environments (such as Python interpreters and terminals). This allows the model to act as a simulator: given a current state and a code modification, it can predict the subsequent state of the system.
