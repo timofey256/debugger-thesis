@@ -4,6 +4,9 @@
 \section{Motivation}
 Automated program repair (APR) is the task of locating and fixing the defective behaviour in code.
 Success is typically defined as whether the change proposed by an APR system resolves this faulty behaviour. 
+Formally, given a task description $x$ and a buggy program $\tilde{y}$, APR aims to produce a fixed program $\hat{y}$
+such that $\hat{y}$ passes all test cases $t \in T$ in an executor $\mathcal{E}$, i.e., $\mathcal{E}(\hat{y}, T) = 1$ while $\mathcal{E}(\tilde{y}, T) = 0$.
+
 Early APR approaches mostly relied on symbolic analysis, such as abstract syntax trees (ASTs), predefined fix templates, 
 search-based methods that mutated code until tests passed, or constraint solvers that synthesized repairs based on formal specifications.
 Modern systems have shifted to probabilistic analysis with flexible reasoning based on non-deterministic models that are trained on large code and text corpora.
