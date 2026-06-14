@@ -162,8 +162,6 @@ where $[\cdot]_{0:N}$ denotes truncation to the first $N$ elements. We instantia
 \end{tabular}
 \end{table}
 
-\unsure{Should we also try some frame ranking techniques like SBFL (Spectrum-Based Fault Localization)? This way we could rank frames by their usefullness and potentially extract more information. Unsure if this is not going to bloat the scope of work and make it less focused.}
-
 \subsection{Traceback frame pipeline}
 
 The pipeline for \texttt{frames} applies four filters in sequence. \texttt{FrozenOrSyntheticFrameFilter} drops frames whose file path contains \texttt{<} or the substring \texttt{frozen}; these correspond to frozen importlib modules that have no real source. \texttt{SitePackagesFrameFilter} drops frames whose path contains \texttt{site-packages}. \texttt{StdlibFrameFilter} drops frames from the standard library by checking whether the path starts with a known stdlib location (obtained from \texttt{sysconfig.get\_path}) or contains \texttt{/lib/python}. \texttt{ConftestFrameFilter} drops frames from \texttt{conftest.py} files, which belong to the tracing infrastructure itself.
@@ -203,7 +201,6 @@ The truncation bound $\tau_{1000}$ applies after either choice. Long lists, larg
 \label{subsec:trace-selection}
 
 A project instance may have multiple failing tests, each producing its own entry in \texttt{auto\_debug.json}. For the LLM session we select a single representative trace. The current heuristic selects the first entry in the list. This is a deliberate simplification: more sophisticated strategies such as selecting the trace with the deepest frame stack, the most distinct exception type, or the most variable-rich locals were considered but not implemented. The first-trace heuristic is deterministic and easy to reason about, which is important for reproducibility.
-\unsure{We select the first trace out of all produced as a simple heuristic. It is definitely a limitation and we should either acknowledge it somwhere (where?), or develop a (still simple) strategy}
 
 \subsection{Static prompt approach}
 \label{subsec:static-prompt}
